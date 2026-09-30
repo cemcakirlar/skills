@@ -11,7 +11,7 @@ metadata:
 
 Operate on **Projects v2** through **`gh project`**. Treat **`gh api graphql`** as the escape hatch for field values, node IDs, and views that the subcommands do not expose.
 
-Repo-centric git work (clone, branch, PR, commit) belongs in the sibling skill `github-projects` does not own — use `github-cli` first, then attach the issue or PR here.
+Repo-centric git work (clone, branch, PR, commit) is not this skill. Use `github-cli` first, then attach the issue or PR here.
 
 Recipes live in `references/recipes.md`. GraphQL mutations live in `references/graphql.md`.
 

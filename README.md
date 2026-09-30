@@ -72,6 +72,7 @@ If you use `gh skill` instead of `npx skills`:
 
 ```bash
 gh skill install cemcakirlar/skills github-cli
+gh skill install cemcakirlar/skills github-projects
 ```
 
 ## Layout
@@ -92,6 +93,7 @@ Each skill is a folder with a `SKILL.md`. Add new topics as sibling folders unde
 | Skill | What it is for |
 |---|---|
 | [github-cli](skills/github-cli/SKILL.md) | GitHub work from the terminal with `git`, `gh`, and `gh api` |
+| [github-projects](skills/github-projects/SKILL.md) | GitHub Projects v2 boards, fields, and items via `gh project` |
 
 ## Authoring
 

@@ -160,14 +160,8 @@ find_lock_file() {
     fi
   done
 
-  # Fallback to global lockfile if present
-  if [[ -f "$HOME/.agents/.skill-lock.json" ]]; then
-    echo "$HOME/.agents/.skill-lock.json"
-    return 0
-  fi
-
-  error "No skills lockfile found in $REPO_ROOT or ~/.agents/.
-Run 'npx skills add <source> --skill <name>' first, or specify lockfile with -l <path>."
+  error "No skills lockfile found in $REPO_ROOT (e.g. skills-lock.json).
+If you explicitly intended to inspect global skills, pass -g / --global."
 }
 
 LOCK_FILE=$(find_lock_file)

@@ -37,7 +37,7 @@ When working inside a project that uses vendor skills:
 - `-k, --skill <name>`: Target a specific skill only (e.g. `github-flow`), leaving other modified skills untouched.
 - `-y, --yes`: Auto-confirm PR creation without interactive prompt.
 - `-l, --lock <path>`: Specify a custom lockfile path (auto-detects `skills-lock.json`, `.skill-lock.json`, `.agents/.skill-lock.json`).
-- `-g, --global`: Inspect global agent skills (`~/.agents/.skill-lock.json`).
+- `-g, --global`: Inspect global agent skills (`~/.agents/.skill-lock.json`). Required to inspect global skills; commands will never fall back to global automatically when a project lockfile is absent.
 
 ### Usage Examples
 

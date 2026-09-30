@@ -394,6 +394,18 @@ cmd_ship() {
     git branch -D "$head_ref" > /dev/null 2>&1 || true
   fi
 
+  # Ensure linked issues are closed on GitHub
+  if [[ -n "$linked_issues" ]]; then
+    for issue_no in $linked_issues; do
+      local issue_state
+      issue_state=$(gh issue view "$issue_no" --json state --jq .state 2>/dev/null || echo "")
+      if [[ "$issue_state" == "OPEN" ]]; then
+        gh issue close "$issue_no" --comment "Completed in PR #$pr_no" >/dev/null 2>&1 || true
+        success "Closed Issue #$issue_no."
+      fi
+    done
+  fi
+
   resolve_project_details
   if [[ -n "$PROJECT_NUM" && -n "$linked_issues" && -n "$CACHED_DONE_OPTION_ID" ]]; then
     for issue_no in $linked_issues; do

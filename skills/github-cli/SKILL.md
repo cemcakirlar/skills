@@ -3,7 +3,7 @@ name: github-cli
 description: Work on GitHub repositories from the command line with git and the official gh CLI. Use for clone, branch, commit, push, issues, pull requests, reviews, checks, releases, Actions runs, forks, code search, and GitHub API calls. Triggers on GitHub, gh, git repo, open a PR, create issue, merge pull request, review PR, gh api, release, workflow run, fork, and similar repo-workflow requests.
 metadata:
   type: workflow
-  version: "1.0"
+  version: "1.1"
   stack: git+gh
 ---
 
@@ -144,10 +144,29 @@ Use `gh api` when you need a field those commands do not expose, GraphQL, or a p
 | 401 | Missing/expired token; run `gh auth status` |
 | 403 on push | No write permission, SSO not authorized, or branch ruleset |
 | 403 on workflow file | Token lacks `workflow` scope |
+| 403 / 429 with `rate limit` / `secondary rate` in the body | Quota, not permission. See Rate limits below |
 | 404 on a repo you know exists | Private repo + wrong account, or no access |
 | `resource not accessible by integration` | Fine-grained token missing that permission |
 
 Re-auth or request permission. Do not try to smash through branch protection.
+
+### Rate limits
+
+`gh` is a client, not a third quota. REST `core`, GraphQL `points`, and `search` are separate hourly buckets on the same user token. Connector tools, `curl`, and `gh` share those buckets.
+
+Do **not** call `gh api rate_limit` before every command. Call it when:
+
+- the user said they are rate-limited
+- a command returned 403/429 that is not an obvious permission miss
+- you are about to paginate or search heavily
+
+```bash
+gh api rate_limit --jq '{core:.resources.core, graphql:.resources.graphql, search:.resources.search}'
+```
+
+Read `remaining` and `reset` on the resource that the failing command uses (`gh search*` → `search`; most `gh issue`/`gh pr`/`gh api /repos` → `core`; many `gh pr status` / GraphQL calls → `graphql`). If that `remaining` is 0, wait until `reset` — do not retry in a loop and do not `gh auth refresh` for quota.
+
+A 403 while `remaining` is still high is permission, SSO, or a secondary (burst) limit. Back off; do not tight-loop. Details in `references/api.md`.
 
 ---
 

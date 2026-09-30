@@ -26,9 +26,33 @@ Flags that matter:
 | `--slurp` | combine paginated arrays |
 | `--silent` | no response body |
 | `--hostname github.example.com` | GHE / non-default host |
+| `--header "X-GitHub-Api-Version: …"` | Pin REST API version (see below) |
 | `--preview NAME` | extra Accept preview (rare now) |
 
-GraphQL:
+## REST API version
+
+Pin `X-GitHub-Api-Version` on every raw REST call. Do not rely on the implicit default.
+
+On github.com the current version is `2026-03-10`. Requests that omit the header still default to `2022-11-28`. That older version remains supported until 2028-03-10; new work should not target it.
+
+Confirm what the host actually serves before copying a date from memory:
+
+```bash
+gh api versions --jq .
+# or: curl -sS https://api.github.com/versions
+```
+
+Use the newest date in that list for github.com. Enterprise Server often lags and may only advertise `2022-11-28`. Use what `/versions` returns on that host, not the github.com latest.
+
+```bash
+gh api repos/OWNER/REPO \
+  --header "Accept: application/vnd.github+json" \
+  --header "X-GitHub-Api-Version: 2026-03-10"
+```
+
+When a newer dated version appears in `GET /versions`, switch the header to that date. Unsupported dates return `410 Gone` on github.com.
+
+## GraphQL
 
 ```bash
 gh api graphql -f query='
@@ -109,7 +133,7 @@ Only if `gh` cannot run:
 ```bash
 curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" \
      -H "Accept: application/vnd.github+json" \
-     -H "X-GitHub-Api-Version: 2022-11-28" \
+     -H "X-GitHub-Api-Version: 2026-03-10" \
      https://api.github.com/repos/OWNER/REPO
 ```
 

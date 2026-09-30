@@ -87,9 +87,24 @@ gh project item-edit \
 
 Text / number / date variants use `--text`, `--number`, `--date` instead of `--single-select-option-id`. If the flags differ on this `gh` version, read `-h` and do not guess.
 
+When `item-edit` is clumsy (several fields on one item, or GraphQL points are low), use REST with **numeric** IDs. See `references/rest.md`.
+
+```bash
+# user-owned project — integer item_id and field id, not PVT_
+gh api --method PATCH \
+  --header "Accept: application/vnd.github+json" \
+  --header "X-GitHub-Api-Version: 2026-03-10" \
+  /users/OWNER/projectsV2/NUMBER/items/ITEM_ID \
+  --input - <<'JSON'
+{"fields":[{"id":123,"value":"Updated text"},{"id":456,"value":42}]}
+JSON
+```
+
+Org path is `/orgs/ORG/projectsV2/NUMBER/items/ITEM_ID`. Single-select / iteration values are option IDs, not labels.
+
 ## Rate limits before a burst
 
-`gh project *` spends the GraphQL point bucket. Same user token as `gh api`, `curl`, and connector tools.
+`gh project *` and GraphQL spend the GraphQL point bucket. REST `projectsV2` spends `core`. Same user token as `curl` and connector tools.
 
 Skip the probe for one list, one add, or one edit. Before N item-edits or a full-board rewrite:
 
@@ -103,7 +118,7 @@ On 403/429:
 
 1. Read the error body for `rate limit` / `secondary rate`.
 2. Run the `rate_limit` query above.
-3. `remaining: 0` → wait. `remaining` healthy → secondary/burst or missing `project` scope; pause and check `gh auth status`.
+3. `remaining: 0` on the bucket you used → wait. `remaining` healthy → secondary/burst, missing `project` scope, or REST user-route token type; pause and check `gh auth status`.
 
 Do not poll `rate_limit` inside the item loop. List once as JSON, then edit. Pause between writes if a secondary limit fires.
 

@@ -1,6 +1,10 @@
 # Projects v2 GraphQL escape hatch
 
-Use this when `gh project` cannot set a field or you only have node IDs. Prefer `gh api graphql` over raw `curl`. These calls spend the GraphQL point bucket, not REST `core`.
+Use this when you already have node IDs (`PVT_`, `PVTI_`, `PVTF_`), when REST `projectsV2` is 404/403 on this host or token, or when the mutation has no REST equivalent (some view and iteration work).
+
+If you have owner + project number + numeric IDs and need to list fields or PATCH several fields on one item, use `references/rest.md` instead. That path spends REST `core`, not GraphQL points.
+
+Prefer `gh api graphql` over raw `curl`. These calls spend the GraphQL point bucket.
 
 ## Resolve IDs
 
@@ -87,4 +91,4 @@ Ask only the fields you will use. One `item-list --format json` plus targeted mu
 - Send the smallest mutation that performs the ask.
 - Do not delete a project (`deleteProjectV2`) unless the user named it and said delete.
 - Board view layout is a poor GraphQL target. Use `--web` if the user needs to see columns.
-- On GraphQL `remaining: 0`, stop. Do not fall back to hammering REST equivalents of the same project data.
+- On GraphQL `remaining: 0`, stop GraphQL. If `core` is healthy and you have numeric IDs, one REST list/PATCH pass is allowed (`references/rest.md`). Do not loop either API.

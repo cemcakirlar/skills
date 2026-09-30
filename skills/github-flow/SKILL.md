@@ -91,7 +91,10 @@ CHECK_CMD="pnpm -r --parallel run typecheck && pnpm build"
 
 # Deployment Webhook (Optional)
 # Triggered via POST on `ship` and `deploy`
-DEPLOY_HOOK_URL="https://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/YOUR_DEPLOY_HOOK_UUID"
+if [[ -n "${REPO_ROOT:-}" && -f "$REPO_ROOT/.secrets" ]]; then
+  source "$REPO_ROOT/.secrets"
+fi
+DEPLOY_HOOK_URL="${DEPLOY_HOOK_URL:-https://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/YOUR_DEPLOY_HOOK_UUID}"
 
 # Branching Conventions (Optional)
 DEFAULT_BRANCH="main"

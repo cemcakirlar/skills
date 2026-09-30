@@ -72,7 +72,7 @@ gh api graphql -f query='
 | List/create issue | `gh issue` | issue types, field values, sub-issues |
 | File contents | clone + `git` / editor | no working tree and a tiny patch |
 | Checks on a PR | `gh pr checks` | check-run annotations |
-| Projects v2 | (limited `gh project`) | item field mutations |
+| Projects v2 | sibling skill `github-projects` | only if that skill is unavailable |
 | Rulesets, environments, custom properties | — | yes |
 | Dependabot / code scanning | — | yes |
 | Compare two refs | `git diff a...b` | remote-only compare |
@@ -143,15 +143,33 @@ Enterprise Server base URL is `https://HOST/api/v3`. `gh --hostname HOST api ...
 
 ## Error bodies
 
-`gh api` prints the GitHub JSON error. Read `message`, `documentation_url`, and `errors[]` before retrying. Repeated 403s against the same endpoint mean permission or SSO, not a bad flag.
+`gh api` prints the GitHub JSON error. Read `message`, `documentation_url`, and `errors[]` before retrying. Repeated 403s against the same endpoint, when `rate_limit` still shows remaining quota, mean permission or SSO, not a bad flag.
 
-Rate limit leftovers:
+## Rate limits
+
+REST `core`, GraphQL, and `search` are separate primary buckets. `gh`, `gh api`, raw `curl`, and GitHub connector tools that use the same user credential share them. `git push` / `git fetch` do not.
+
+Inspect only on 403/429, before a large paginate/search, or when the user reports a cap:
 
 ```bash
-gh api rate_limit --jq '.resources.core'
+gh api rate_limit --jq '{
+  core: .resources.core,
+  graphql: .resources.graphql,
+  search: .resources.search
+}'
 ```
 
-Back off on 403/429 with `X-RateLimit-Reset`. Do not tight-loop search endpoints.
+Prefer headers on the failed response when present: `X-RateLimit-Resource`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`. `GET /rate_limit` does not spend primary REST quota; do not poll it in a loop (secondary limit).
+
+| Command family | Bucket to read |
+|---|---|
+| `gh api /repos/...`, most `gh issue` / `gh pr` / `gh repo` | `core` (requests/hour) |
+| `gh api graphql`, some status/project-style `gh` commands | `graphql` (points/hour, not 1 query = 1 point) |
+| `gh search *`, REST `/search/*` | `search` (much tighter, often per-minute) |
+
+If `remaining` is 0, stop until `reset`. Do not invent a second token, do not tight-loop, do not switch to unauthenticated calls (60/hour). If `remaining` is healthy and you still get 403 mentioning `secondary rate limit`, slow down: fewer concurrent calls, pause between writes, stop repeating the same list endpoint.
+
+GraphQL can replace several REST reads with one query and spend points instead of `core`. That is useful when `core` is low and `graphql` is not. A fat nested query can still burn GraphQL faster than equivalent REST. Check `rateLimit { cost remaining }` on a query when cost is unclear.
 
 ## Safety on write APIs
 

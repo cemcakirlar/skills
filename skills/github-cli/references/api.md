@@ -15,19 +15,19 @@ gh api --method DELETE repos/OWNER/REPO/contents/PATH   # still needs sha + mess
 
 Flags that matter:
 
-| Flag | Role |
-|---|---|
-| `--method GET\|POST\|PATCH\|PUT\|DELETE` | HTTP verb (GET is default) |
-| `-f key=value` | form/string field |
-| `-F key=@file` | file or typed field |
-| `--input -` or `--input file.json` | raw JSON body |
-| `--jq 'expr'` | jq filter on the response |
-| `--paginate` | follow Link pages |
-| `--slurp` | combine paginated arrays |
-| `--silent` | no response body |
-| `--hostname github.example.com` | GHE / non-default host |
-| `--header "X-GitHub-Api-Version: …"` | Pin REST API version (see below) |
-| `--preview NAME` | extra Accept preview (rare now) |
+| Flag                                     | Role                             |
+| ---------------------------------------- | -------------------------------- |
+| `--method GET\|POST\|PATCH\|PUT\|DELETE` | HTTP verb (GET is default)       |
+| `-f key=value`                           | form/string field                |
+| `-F key=@file`                           | file or typed field              |
+| `--input -` or `--input file.json`       | raw JSON body                    |
+| `--jq 'expr'`                            | jq filter on the response        |
+| `--paginate`                             | follow Link pages                |
+| `--slurp`                                | combine paginated arrays         |
+| `--silent`                               | no response body                 |
+| `--hostname github.example.com`          | GHE / non-default host           |
+| `--header "X-GitHub-Api-Version: …"`     | Pin REST API version (see below) |
+| `--preview NAME`                         | extra Accept preview (rare now)  |
 
 ## REST API version
 
@@ -66,16 +66,16 @@ gh api graphql -f query='
 
 ## When to use which endpoint family
 
-| Need | Prefer first | `gh api` only if |
-|---|---|---|
-| List/create PR | `gh pr` | custom fields, requested teams, fine merge state |
-| List/create issue | `gh issue` | issue types, field values, sub-issues |
-| File contents | clone + `git` / editor | no working tree and a tiny patch |
-| Checks on a PR | `gh pr checks` | check-run annotations |
-| Projects v2 | sibling skill `github-projects` | only if that skill is unavailable |
-| Rulesets, environments, custom properties | — | yes |
-| Dependabot / code scanning | — | yes |
-| Compare two refs | `git diff a...b` | remote-only compare |
+| Need                                      | Prefer first                    | `gh api` only if                                 |
+| ----------------------------------------- | ------------------------------- | ------------------------------------------------ |
+| List/create PR                            | `gh pr`                         | custom fields, requested teams, fine merge state |
+| List/create issue                         | `gh issue`                      | issue types, field values, sub-issues            |
+| File contents                             | clone + `git` / editor          | no working tree and a tiny patch                 |
+| Checks on a PR                            | `gh pr checks`                  | check-run annotations                            |
+| Projects v2                               | sibling skill `github-projects` | only if that skill is unavailable                |
+| Rulesets, environments, custom properties | —                               | yes                                              |
+| Dependabot / code scanning                | —                               | yes                                              |
+| Compare two refs                          | `git diff a...b`                | remote-only compare                              |
 
 Writing file contents through the Contents API (`PUT /repos/.../contents/path`) is possible but inferior to `git commit` + `git push`. It creates awkward commits, fights with branch protection, and does not run local hooks/tests. Use it only when a clone is impossible.
 
@@ -161,11 +161,11 @@ gh api rate_limit --jq '{
 
 Prefer headers on the failed response when present: `X-RateLimit-Resource`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`. `GET /rate_limit` does not spend primary REST quota; do not poll it in a loop (secondary limit).
 
-| Command family | Bucket to read |
-|---|---|
-| `gh api /repos/...`, most `gh issue` / `gh pr` / `gh repo` | `core` (requests/hour) |
-| `gh api graphql`, some status/project-style `gh` commands | `graphql` (points/hour, not 1 query = 1 point) |
-| `gh search *`, REST `/search/*` | `search` (much tighter, often per-minute) |
+| Command family                                             | Bucket to read                                 |
+| ---------------------------------------------------------- | ---------------------------------------------- |
+| `gh api /repos/...`, most `gh issue` / `gh pr` / `gh repo` | `core` (requests/hour)                         |
+| `gh api graphql`, some status/project-style `gh` commands  | `graphql` (points/hour, not 1 query = 1 point) |
+| `gh search *`, REST `/search/*`                            | `search` (much tighter, often per-minute)      |
 
 If `remaining` is 0, stop until `reset`. Do not invent a second token, do not tight-loop, do not switch to unauthenticated calls (60/hour). If `remaining` is healthy and you still get 403 mentioning `secondary rate limit`, slow down: fewer concurrent calls, pause between writes, stop repeating the same list endpoint.
 

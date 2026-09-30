@@ -2,10 +2,10 @@
 
 Agent skills used from this repository.
 
-| Skill | What it is for |
-|---|---|
-| [github-cli](skills/github-cli/SKILL.md) | GitHub repos with `git`, `gh`, and `gh api` |
-| [github-projects](skills/github-projects/SKILL.md) | GitHub Projects v2 with `gh project` |
+| Skill                                              | What it is for                              |
+| -------------------------------------------------- | ------------------------------------------- |
+| [github-cli](skills/github-cli/SKILL.md)           | GitHub repos with `git`, `gh`, and `gh api` |
+| [github-projects](skills/github-projects/SKILL.md) | GitHub Projects v2 with `gh project`        |
 
 ```bash
 npx skills add cemcakirlar/skills --list

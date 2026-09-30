@@ -19,13 +19,13 @@ Recipes live in `references/recipes.md`. REST escape hatch: `references/rest.md`
 
 ## Tool Choice
 
-| Job | Tool |
-|---|---|
-| List/create/view/edit/close/copy project | `gh project` |
-| Fields, items, link/unlink to a repo | `gh project field-*` / `item-*` / `link` |
-| Multi-field write, list items with field values, numeric IDs | `gh api` REST `.../projectsV2/...` |
-| Node IDs only, views, mutations REST does not expose | `gh api graphql` |
-| Create the issue or PR itself | `github-cli` (`gh issue` / `gh pr`) |
+| Job                                                          | Tool                                     |
+| ------------------------------------------------------------ | ---------------------------------------- |
+| List/create/view/edit/close/copy project                     | `gh project`                             |
+| Fields, items, link/unlink to a repo                         | `gh project field-*` / `item-*` / `link` |
+| Multi-field write, list items with field values, numeric IDs | `gh api` REST `.../projectsV2/...`       |
+| Node IDs only, views, mutations REST does not expose         | `gh api graphql`                         |
+| Create the issue or PR itself                                | `github-cli` (`gh issue` / `gh pr`)      |
 
 Do not use classic Projects (`/projects/{id}` columns API). This skill is Projects v2 only.
 
@@ -98,13 +98,13 @@ gh project create --owner OWNER --title "Title"
 
 ## IDs
 
-| Kind | Looks like | Where you get it |
-|---|---|---|
-| Project number | `1`, `12` | `gh project list` (human) |
-| Project / item / field **numeric** id | `13`, `123` | same JSON `id` — use in REST paths |
-| Project node ID | `PVT_…` | `gh project view --format json` |
-| Item node ID | `PVTI_…` | `gh project item-list --format json` |
-| Field / option node IDs | `PVTF_…` / `PVTSO_…` | `gh project field-list --format json` |
+| Kind                                  | Looks like           | Where you get it                      |
+| ------------------------------------- | -------------------- | ------------------------------------- |
+| Project number                        | `1`, `12`            | `gh project list` (human)             |
+| Project / item / field **numeric** id | `13`, `123`          | same JSON `id` — use in REST paths    |
+| Project node ID                       | `PVT_…`              | `gh project view --format json`       |
+| Item node ID                          | `PVTI_…`             | `gh project item-list --format json`  |
+| Field / option node IDs               | `PVTF_…` / `PVTSO_…` | `gh project field-list --format json` |
 
 Numbers are per owner, not global. Always pass `--owner` with the number. REST wants the numeric `id`; GraphQL wants the node id.
 

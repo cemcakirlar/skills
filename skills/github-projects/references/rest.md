@@ -17,12 +17,12 @@ Org-owned boards use `/orgs/ORG/projectsV2/...` instead of `/users/OWNER/project
 
 ## IDs
 
-| Kind | REST | GraphQL / `gh project --format json` node |
-|---|---|---|
-| Project | number in the URL (`1`, `12`) | `PVT_…` |
-| Item | integer `item_id` | `PVTI_…` |
-| Field | integer `id` | `PVTF_…` |
-| Single-select / iteration option | integer or option id string in `value` | `PVTSO_…` |
+| Kind                             | REST                                   | GraphQL / `gh project --format json` node |
+| -------------------------------- | -------------------------------------- | ----------------------------------------- |
+| Project                          | number in the URL (`1`, `12`)          | `PVT_…`                                   |
+| Item                             | integer `item_id`                      | `PVTI_…`                                  |
+| Field                            | integer `id`                           | `PVTF_…`                                  |
+| Single-select / iteration option | integer or option id string in `value` | `PVTSO_…`                                 |
 
 `gh project field-list NUMBER --owner OWNER --format json` and `item-list --format json` often include both. Put the **numeric** `id` in REST paths and PATCH bodies. Putting a `PVT_` string in `/items/{item_id}` fails.
 

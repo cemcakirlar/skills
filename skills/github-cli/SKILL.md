@@ -25,12 +25,12 @@ Projects v2 boards, fields, and items are the sibling skill `github-projects` â€
 
 ## Tool Choice
 
-| Job | Tool |
-|---|---|
-| History, working tree, conflict, rebase, stash, submodule, tag objects | `git` |
-| Repo create/fork/view, issue, PR, review, checks, release, run, gist, search | `gh` |
-| Missing `gh` subcommand, custom REST/GraphQL, one-off field extract | `gh api` |
-| `gh` not installed and cannot be installed | `curl` + bearer token (last resort) |
+| Job                                                                          | Tool                                |
+| ---------------------------------------------------------------------------- | ----------------------------------- |
+| History, working tree, conflict, rebase, stash, submodule, tag objects       | `git`                               |
+| Repo create/fork/view, issue, PR, review, checks, release, run, gist, search | `gh`                                |
+| Missing `gh` subcommand, custom REST/GraphQL, one-off field extract          | `gh api`                            |
+| `gh` not installed and cannot be installed                                   | `curl` + bearer token (last resort) |
 
 Never use the GitHub website when an equivalent `gh`/`git` command works, unless the user asked for a browser link.
 
@@ -139,14 +139,14 @@ Use `gh api` when you need a field those commands do not expose, GraphQL, or a p
 
 ### Auth errors
 
-| Symptom | Likely cause |
-|---|---|
-| 401 | Missing/expired token; run `gh auth status` |
-| 403 on push | No write permission, SSO not authorized, or branch ruleset |
-| 403 on workflow file | Token lacks `workflow` scope |
-| 403 / 429 with `rate limit` / `secondary rate` in the body | Quota, not permission. See Rate limits below |
-| 404 on a repo you know exists | Private repo + wrong account, or no access |
-| `resource not accessible by integration` | Fine-grained token missing that permission |
+| Symptom                                                    | Likely cause                                               |
+| ---------------------------------------------------------- | ---------------------------------------------------------- |
+| 401                                                        | Missing/expired token; run `gh auth status`                |
+| 403 on push                                                | No write permission, SSO not authorized, or branch ruleset |
+| 403 on workflow file                                       | Token lacks `workflow` scope                               |
+| 403 / 429 with `rate limit` / `secondary rate` in the body | Quota, not permission. See Rate limits below               |
+| 404 on a repo you know exists                              | Private repo + wrong account, or no access                 |
+| `resource not accessible by integration`                   | Fine-grained token missing that permission                 |
 
 Re-auth or request permission. Do not try to smash through branch protection.
 

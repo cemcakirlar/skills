@@ -87,6 +87,26 @@ gh project item-edit \
 
 Text / number / date variants use `--text`, `--number`, `--date` instead of `--single-select-option-id`. If the flags differ on this `gh` version, read `-h` and do not guess.
 
+## Rate limits before a burst
+
+`gh project *` spends the GraphQL point bucket. Same user token as `gh api`, `curl`, and connector tools.
+
+Skip the probe for one list, one add, or one edit. Before N item-edits or a full-board rewrite:
+
+```bash
+gh api rate_limit --jq '{graphql:.resources.graphql, core:.resources.core}'
+```
+
+If `graphql.remaining` is 0, wait for `reset`. If it is low relative to N (roughly a few points per mutation, plus the list), shrink the batch or stop.
+
+On 403/429:
+
+1. Read the error body for `rate limit` / `secondary rate`.
+2. Run the `rate_limit` query above.
+3. `remaining: 0` → wait. `remaining` healthy → secondary/burst or missing `project` scope; pause and check `gh auth status`.
+
+Do not poll `rate_limit` inside the item loop. List once as JSON, then edit. Pause between writes if a secondary limit fires.
+
 ## After opening an issue in github-cli
 
 ```bash

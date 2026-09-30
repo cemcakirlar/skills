@@ -1,0 +1,33 @@
+# .releaserc — Configuration for github-release CLI
+# Place this file in your project root as '.releaserc' to customize release behavior.
+
+# Quality gate command to execute before release (fails release if exit code != 0)
+# Example for Node/pnpm:
+# CHECK_CMD="pnpm flow check"
+# Example for Cargo:
+# CHECK_CMD="cargo test"
+# Example for Make:
+# CHECK_CMD="make tests"
+CHECK_CMD=""
+
+# Build or packaging command to run before tagging
+# Example:
+# BUILD_CMD="pnpm build"
+BUILD_CMD=""
+
+# Directory containing binary or archive assets to upload to GitHub Release
+# Example: "dist" or "build"
+ASSETS_DIR=""
+
+# Additional specific asset files to attach (array)
+# CUSTOM_ASSETS=("dist/app.zip" "dist/app.zip.sha256")
+CUSTOM_ASSETS=()
+
+# Default release branch (default: auto-detected or 'main')
+DEFAULT_BRANCH="main"
+
+# Tag prefix (default: 'v')
+TAG_PREFIX="v"
+
+# Path to the changelog file (default: 'CHANGELOG.md')
+CHANGELOG_FILE="CHANGELOG.md"

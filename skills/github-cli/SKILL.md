@@ -19,6 +19,8 @@ Detailed command catalogs live in:
 - `references/api.md` — `gh api` patterns, query flags, pagination, common REST/GraphQL calls
 - `scripts/preflight.sh` — check git, gh, auth, and current repo context
 
+Projects v2 boards, fields, and items are the sibling skill `github-projects` — attach an issue or PR with `gh project item-add` there.
+
 ---
 
 ## Tool Choice
@@ -166,4 +168,4 @@ Re-auth or request permission. Do not try to smash through branch protection.
 - Designing an org's entire branch-protection policy from scratch (can apply an explicit policy)
 - Storing or minting tokens for the user
 
-When the user asks for something GitHub cannot do from CLI (interactive conflict UI, some Project v2 views), say so and use the closest `gh`/`gh api` path.
+When the user asks for something GitHub cannot do from CLI (interactive conflict UI), say so and use the closest `gh`/`gh api` path. Project board layout is UI-only; item and field work belongs in `github-projects`.

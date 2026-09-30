@@ -589,8 +589,13 @@ EOF
 )
   fi
 
+  local head_arg="$branch_name"
+  if git remote | grep -q "^fork$" && [[ -n "${gh_user:-}" ]]; then
+    head_arg="${gh_user}:${branch_name}"
+  fi
+
   local pr_url
-  pr_url=$(gh pr create --repo "$src" --title "$pr_title" --body "$pr_body")
+  pr_url=$(gh pr create --repo "$src" --head "$head_arg" --title "$pr_title" --body "$pr_body")
   success "Upstream PR opened successfully: $pr_url"
 }
 

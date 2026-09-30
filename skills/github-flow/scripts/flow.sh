@@ -450,6 +450,46 @@ cmd_deploy() {
   fi
 }
 
+cmd_next() {
+  local auto_start="${1:-}"
+
+  log "Fetching open issues for ${REPO_OWNER}/${REPO_NAME}..."
+  local issues_json
+  issues_json=$(gh issue list --state open --limit 20 --json number,title,labels 2>/dev/null || true)
+
+  if [[ -z "$issues_json" || "$issues_json" == "[]" ]]; then
+    success "No open issues found in ${REPO_OWNER}/${REPO_NAME}! Backlog is clean."
+    return 0
+  fi
+
+  local count
+  count=$(echo "$issues_json" | jq '. | length' 2>/dev/null || echo "0")
+
+  log "Found $count open issue(s):"
+  echo ""
+  printf "  ${BLUE}%-7s${NC} %s\n" "ISSUE" "TITLE"
+  printf "  %-7s %s\n" "-------" "------------------------------------------------------------"
+
+  echo "$issues_json" | jq -r '.[] | "\(.number)\t\(.title)"' | while IFS=$'\t' read -r num title; do
+    printf "  #%-6s %s\n" "$num" "$title"
+  done
+  echo ""
+
+  local next_issue_no next_issue_title
+  next_issue_no=$(echo "$issues_json" | jq -r '.[0].number')
+  next_issue_title=$(echo "$issues_json" | jq -r '.[0].title')
+
+  log "Next issue in queue: #${next_issue_no} - ${next_issue_title}"
+
+  if [[ "$auto_start" == "--start" || "$auto_start" == "-s" ]]; then
+    log "Auto-starting issue #${next_issue_no}..."
+    cmd_start "$next_issue_no"
+  else
+    echo -e "To start working on this issue, run:"
+    echo -e "  ${GREEN}pnpm flow start ${next_issue_no}${NC}"
+  fi
+}
+
 cmd_status() {
   log "github-flow Status"
   if [[ -n "$REPO_OWNER" && -n "$REPO_NAME" ]]; then
@@ -480,6 +520,7 @@ Usage:
   ./scripts/flow.sh <command> [arguments]
 
 Commands:
+  next [--start]             List open backlog issues and display next candidate (optionally start)
   start <issue_no> [slug]    Start work on an issue (syncs default branch, sets board In Progress, creates branch)
   check                      Run quality gate (auto-detected or configured in .flowrc)
   pr <issue_no> [title]      Commit, push, create PR and link PR to issue (populates project board)
@@ -503,6 +544,7 @@ main() {
   shift || true
 
   case "$cmd" in
+    next)   cmd_next "$@" ;;
     start)  cmd_start "$@" ;;
     check)  cmd_check "$@" ;;
     link)   cmd_link "$@" ;;

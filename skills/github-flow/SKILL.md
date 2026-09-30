@@ -23,13 +23,15 @@ This skill connects three separate GitHub systems into a single seamless loop:
 
 ```mermaid
 flowchart LR
-    A[1. start <issue>] --> B[2. check]
-    B --> C[3. pr <issue>]
-    C --> D[4. ship <pr>]
+    A[0. next] --> B[1. start <issue>]
+    B --> C[2. check]
+    C --> D[3. pr <issue>]
+    D --> E[4. ship <pr>]
 ```
 
 | Step         | Command                                          | What It Does                                                                                                                     |
 | ------------ | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| **0. Next**  | `./scripts/flow.sh next [--start]`               | Lists open backlog issues, displays next candidate in queue, and optionally starts work.                                         |
 | **1. Start** | `./scripts/flow.sh start <issue_no> [slug]`      | Syncs default branch, sets Project board status to **In Progress**, and creates `feature/<slug>` branch.                         |
 | **2. Check** | `./scripts/flow.sh check`                        | Runs project verification gates (typecheck, tests, build) and shows git status.                                                  |
 | **3. PR**    | `./scripts/flow.sh pr <issue_no> [title] [body]` | Commits changes, pushes branch, opens PR, and links PR to issue via GraphQL.                                                     |

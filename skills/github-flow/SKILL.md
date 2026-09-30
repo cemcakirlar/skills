@@ -42,6 +42,35 @@ flowchart LR
 
 ---
 
+## Step Chaining & Agent Response Rules (MANDATORY)
+
+To guarantee high engineering velocity and maintain clear conversational context, **every step in the `github-flow` lifecycle deterministically points to the next command**.
+
+### Transition Rules
+
+| Step Completed            | State / Context                                  | Next Command to Run / Recommend     |
+| :------------------------ | :----------------------------------------------- | :---------------------------------- |
+| **0. `next`**             | Backlog issue reviewed/selected                  | `pnpm flow start <issue_no> [slug]` |
+| **1. `start <issue_no>`** | Feature branch created, code changes ready       | `pnpm flow check`                   |
+| **2. `check`**            | Quality gates passed (typecheck, tests, build)   | `pnpm flow pr <issue_no> "[title]"` |
+| **3. `pr <issue_no>`**    | PR created and linked to issue                   | `pnpm flow ship [pr_no]`            |
+| **4. `ship [pr_no]`**     | PR merged, branch deleted, default branch synced | `pnpm flow next [--start]`          |
+
+### AI Agent Reporting Requirement
+
+Whenever an AI agent completes a step or presents a status summary (e.g. after running `flow check` or `flow start`), **it MUST always append the next command to execute immediately below its summary report**:
+
+````markdown
+### Sonraki Adım / Next Step
+```bash
+pnpm flow <next_command>
+```
+````
+
+Agents must never end a status report without this explicit next step block.
+
+---
+
 ## Configuration (`.flowrc`)
 
 `github-flow` works zero-config on standard repos, but can be tailored per repository using a `.flowrc` file in the repository root.
@@ -86,6 +115,7 @@ See `references/flowrc.example` for a complete template.
    Or execute directly: `bash .agents/skills/github-flow/scripts/flow.sh <command>`.
 3. **Configure (optional)**: Create `.flowrc` if using GitHub Projects v2 boards or deploy hooks.
 4. **Document in `AGENTS.md`**:
+
    ```markdown
    ## Issue workflow
 

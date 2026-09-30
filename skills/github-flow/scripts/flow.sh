@@ -177,6 +177,22 @@ detect_check_command() {
   fi
 }
 
+resolve_flow_cmd() {
+  if [[ -f "$REPO_ROOT/package.json" ]] && grep -q '"flow":' "$REPO_ROOT/package.json"; then
+    if [[ -f "$REPO_ROOT/pnpm-lock.yaml" ]]; then
+      echo "pnpm flow"
+    elif [[ -f "$REPO_ROOT/yarn.lock" ]]; then
+      echo "yarn flow"
+    elif [[ -f "$REPO_ROOT/bun.lockb" || -f "$REPO_ROOT/bun.lock" ]]; then
+      echo "bun flow"
+    else
+      echo "npm run flow --"
+    fi
+  else
+    echo "./scripts/flow.sh"
+  fi
+}
+
 # -----------------------------------------------------------------------------
 # Commands
 # -----------------------------------------------------------------------------
@@ -236,6 +252,9 @@ cmd_start() {
   fi
 
   success "Ready to work on issue #$issue_no on branch '$branch_name'!"
+  echo ""
+  echo "Next step: make changes and verify quality gates with:"
+  echo -e "  ${GREEN}$(resolve_flow_cmd) check${NC}"
 }
 
 cmd_check() {
@@ -247,6 +266,16 @@ cmd_check() {
   log "Working tree status:"
   git status -sb
   success "Quality gates passed successfully!"
+  local branch_issue=""
+  local current_branch
+  current_branch=$(git branch --show-current 2>/dev/null || true)
+  if [[ "$current_branch" =~ [/-]([0-9]+) ]]; then
+    branch_issue="${BASH_REMATCH[1]}"
+  fi
+  local target_issue="${branch_issue:-<issue_no>}"
+  echo ""
+  echo "Next step: commit changes and create PR with:"
+  echo -e "  ${GREEN}$(resolve_flow_cmd) pr $target_issue \"[title]\"${NC}"
 }
 
 cmd_link() {
@@ -350,6 +379,9 @@ EOF
   fi
 
   success "PR #$pr_no prepared and linked successfully!"
+  echo ""
+  echo "Next step: merge and ship PR with:"
+  echo -e "  ${GREEN}$(resolve_flow_cmd) ship $pr_no${NC}"
 }
 
 cmd_ship() {
@@ -424,6 +456,9 @@ cmd_ship() {
   fi
 
   success "Ship completed successfully!"
+  echo ""
+  echo "Next step: pick up next issue with:"
+  echo -e "  ${GREEN}$(resolve_flow_cmd) next${NC}"
 }
 
 cmd_deploy() {
@@ -486,7 +521,7 @@ cmd_next() {
     cmd_start "$next_issue_no"
   else
     echo -e "To start working on this issue, run:"
-    echo -e "  ${GREEN}pnpm flow start ${next_issue_no}${NC}"
+    echo -e "  ${GREEN}$(resolve_flow_cmd) start ${next_issue_no}${NC}"
   fi
 }
 

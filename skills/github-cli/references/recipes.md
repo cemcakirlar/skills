@@ -163,6 +163,8 @@ gh search code "func ParseToken" --repo OWNER/REPO --language go
 
 Unscoped code/commit search hits all of GitHub and is usually the wrong default. Always add `repo:`, `org:`, or `user:`.
 
+Search uses the `search` rate-limit bucket, not REST `core`. A 403 here is often the per-minute search cap. Check `gh api rate_limit --jq .resources.search` and wait; do not immediately rerun the same query.
+
 ## JSON extracts
 
 ```bash

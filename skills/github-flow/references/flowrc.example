@@ -27,7 +27,16 @@ CHECK_CMD="pnpm -r --parallel run typecheck && pnpm build"
 # -----------------------------------------------------------------------------
 # DEPLOY_HOOK_URL: Webhook URL triggered via POST during `./flow.sh ship` or `./flow.sh deploy`.
 # Example: Cloudflare Workers build hook, Vercel deploy hook, Netlify build hook.
-DEPLOY_HOOK_URL="https://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/YOUR_DEPLOY_HOOK_UUID"
+# Load local secret credentials if available (gitignored)
+if [[ -n "${REPO_ROOT:-}" && -f "$REPO_ROOT/.secrets" ]]; then
+  # shellcheck source=/dev/null
+  source "$REPO_ROOT/.secrets"
+elif [[ -f "./.secrets" ]]; then
+  # shellcheck source=/dev/null
+  source "./.secrets"
+fi
+
+DEPLOY_HOOK_URL="${DEPLOY_HOOK_URL:-https://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/YOUR_DEPLOY_HOOK_UUID}"
 
 # -----------------------------------------------------------------------------
 # Branching Conventions (Optional)

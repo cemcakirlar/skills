@@ -279,6 +279,51 @@ $err_msg"
   echo "$target_dir"
 }
 
+resolve_upstream_cmd() {
+  local subcmd="$1"
+  local base_cmd=""
+  local script_key="skills:$subcmd"
+
+  if [[ -f "$REPO_ROOT/package.json" ]] && grep -q "\"$script_key\":" "$REPO_ROOT/package.json"; then
+    if [[ -f "$REPO_ROOT/pnpm-lock.yaml" ]]; then
+      base_cmd="pnpm $script_key"
+    elif [[ -f "$REPO_ROOT/yarn.lock" ]]; then
+      base_cmd="yarn $script_key"
+    elif [[ -f "$REPO_ROOT/bun.lockb" || -f "$REPO_ROOT/bun.lock" ]]; then
+      base_cmd="bun $script_key"
+    else
+      base_cmd="npm run $script_key --"
+    fi
+  elif [[ -f "$REPO_ROOT/package.json" ]] && grep -q '"upstream":' "$REPO_ROOT/package.json"; then
+    if [[ -f "$REPO_ROOT/pnpm-lock.yaml" ]]; then
+      base_cmd="pnpm upstream $subcmd"
+    elif [[ -f "$REPO_ROOT/yarn.lock" ]]; then
+      base_cmd="yarn upstream $subcmd"
+    elif [[ -f "$REPO_ROOT/bun.lockb" || -f "$REPO_ROOT/bun.lock" ]]; then
+      base_cmd="bun upstream $subcmd"
+    else
+      base_cmd="npm run upstream -- $subcmd"
+    fi
+  else
+    local script_rel="${0#$REPO_ROOT/}"
+    if [[ "$script_rel" != "$0" && -f "$REPO_ROOT/$script_rel" ]]; then
+      base_cmd="./$script_rel $subcmd"
+    else
+      base_cmd="$0 $subcmd"
+    fi
+  fi
+
+  local extra_flags=""
+  if [[ "$IS_GLOBAL" == "true" ]]; then
+    extra_flags+=" -g"
+  fi
+  if [[ -n "$LOCK_FILE_OVERRIDE" ]]; then
+    extra_flags+=" -l $LOCK_FILE_OVERRIDE"
+  fi
+
+  echo "${base_cmd}${extra_flags}"
+}
+
 # -----------------------------------------------------------------------------
 # Commands
 # -----------------------------------------------------------------------------
@@ -316,6 +361,7 @@ inspect_source_status() {
 
   local changed_count=0
   local total_count=0
+  local changed_skills=()
 
   for skill in $(get_source_skills "$src"); do
     total_count=$((total_count + 1))
@@ -333,6 +379,7 @@ inspect_source_status() {
     if [[ ! -d "$upstream_skill_dir" ]]; then
       printf "  %-24s ${YELLOW}%-14s${NC} %s\n" "$skill" "New local" "Directory not in upstream"
       changed_count=$((changed_count + 1))
+      changed_skills+=("$skill")
       continue
     fi
 
@@ -346,14 +393,49 @@ inspect_source_status() {
       changed_files=$( (diff -r -q -x ".DS_Store" -x "node_modules" -x ".git" "$upstream_skill_dir" "$local_skill_dir" 2>/dev/null || true) | wc -l | tr -d ' ')
       printf "  %-24s ${YELLOW}%-14s${NC} %s\n" "$skill" "! Modified" "$changed_files file(s) differ from upstream"
       changed_count=$((changed_count + 1))
+      changed_skills+=("$skill")
     fi
   done
 
   echo ""
   if [[ $changed_count -gt 0 ]]; then
     warn "$changed_count of $total_count skill(s) in $src have local improvements pending sync."
-    echo -e "  Run diff command to view unified diff."
-    echo -e "  Run pr command to open a consolidated upstream PR."
+    echo ""
+    echo -e "  ${BOLD}Next actions:${NC}"
+
+    local diff_base
+    diff_base="$(resolve_upstream_cmd diff)"
+    local pr_base
+    pr_base="$(resolve_upstream_cmd pr)"
+
+    if [[ -n "$TARGET_SKILL" ]]; then
+      echo -e "    View unified diff:"
+      echo -e "      ${GREEN}$diff_base --source $src --skill $TARGET_SKILL${NC}"
+      echo ""
+      echo -e "    Open upstream PR:"
+      echo -e "      ${GREEN}$pr_base --source $src --skill $TARGET_SKILL${NC}"
+    elif [[ $changed_count -eq 1 ]]; then
+      local single_skill="${changed_skills[0]}"
+      echo -e "    View unified diff:"
+      echo -e "      ${GREEN}$diff_base --source $src${NC}"
+      echo -e "      (or specific skill)"
+      echo -e "      ${GREEN}$diff_base --source $src --skill $single_skill${NC}"
+      echo ""
+      echo -e "    Open upstream PR:"
+      echo -e "      ${GREEN}$pr_base --source $src${NC}"
+      echo -e "      (or specific skill)"
+      echo -e "      ${GREEN}$pr_base --source $src --skill $single_skill${NC}"
+    else
+      echo -e "    View unified diff (all modified):"
+      echo -e "      ${GREEN}$diff_base --source $src${NC}"
+      echo -e "      (or specific skill)"
+      echo -e "      ${GREEN}$diff_base --source $src --skill <skill_name>${NC}"
+      echo ""
+      echo -e "    Open upstream PR (all modified):"
+      echo -e "      ${GREEN}$pr_base --source $src${NC}"
+      echo -e "      (or specific skill)"
+      echo -e "      ${GREEN}$pr_base --source $src --skill <skill_name>${NC}"
+    fi
   else
     success "All $total_count skills for $src are completely in sync!"
   fi
@@ -407,6 +489,16 @@ inspect_source_diff() {
 
   if [[ $has_diff -eq 0 ]]; then
     success "No differences found for $src. All skills are in sync."
+  else
+    echo -e "  ${BOLD}Next action:${NC}"
+    echo -e "    Open upstream PR:"
+    local pr_base
+    pr_base="$(resolve_upstream_cmd pr)"
+    if [[ -n "$TARGET_SKILL" ]]; then
+      echo -e "      ${GREEN}$pr_base --source $src --skill $TARGET_SKILL${NC}"
+    else
+      echo -e "      ${GREEN}$pr_base --source $src${NC}"
+    fi
   fi
   echo ""
 }

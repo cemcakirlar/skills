@@ -23,7 +23,7 @@ gh project view NUMBER --owner OWNER --web
 gh project create --owner OWNER --title "Roadmap"
 gh project edit NUMBER --owner OWNER --title "New title"
 gh project close NUMBER --owner OWNER
-gh project copy NUMBER --owner OWNER --dest-owner OTHER --title "Copy"
+gh project copy NUMBER --source-owner OWNER --target-owner OTHER --title "Copy"
 ```
 
 `delete` and `mark-template` are destructive or org-policy adjacent. Only run them when the user named the project and the action.
@@ -60,10 +60,8 @@ Do not delete a field unless asked. Status is often a built-in single-select; in
 
 ```bash
 gh project item-list NUMBER --owner OWNER --limit 50
-gh project item-list NUMBER --owner OWNER --field Status --field Priority
-gh project item-list NUMBER --owner OWNER --query "assignee:@me is:open"
-gh project item-list NUMBER --owner OWNER --query "label:bug -status:Done"
 gh project item-list NUMBER --owner OWNER --format json
+gh project item-list NUMBER --owner OWNER --format json --jq '.items[] | select(.assignees[]? == "@me")'
 
 gh project item-add NUMBER --owner OWNER --url https://github.com/OWNER/REPO/issues/12
 gh project item-add NUMBER --owner OWNER --url https://github.com/OWNER/REPO/pull/34
@@ -73,7 +71,7 @@ gh project item-archive NUMBER --owner OWNER --id PVTI_...
 gh project item-delete NUMBER --owner OWNER --id PVTI_...
 ```
 
-`--query` syntax matches project filter language (`assignee:`, `is:issue`, `label:`, `-status:`). Host support is github.com and recent GHES.
+`item-list` does not take a filter query flag. Filter client-side via `--format json` and `--jq`, or query via GraphQL (`references/graphql.md`).
 
 `item-edit` needs IDs. Typical shape (check `gh project item-edit -h` on the installed `gh`):
 
@@ -85,7 +83,7 @@ gh project item-edit \
   --single-select-option-id PVTSO_...
 ```
 
-Text / number / date variants use `--text`, `--number`, `--date` instead of `--single-select-option-id`. If the flags differ on this `gh` version, read `-h` and do not guess.
+Text / number / date / iteration variants use `--text`, `--number`, `--date`, `--iteration-id` instead of `--single-select-option-id`. If the flags differ on this `gh` version, read `-h` and do not guess.
 
 When `item-edit` is clumsy (several fields on one item, or GraphQL points are low), use REST with **numeric** IDs. See `references/rest.md`.
 

@@ -181,7 +181,7 @@ Prefer explicit `--json` field lists over scraping human tables.
 ```bash
 git switch main
 git pull --ff-only
-git branch --merged | grep -v '^\*' | xargs -r git branch -d
+git branch --merged | grep -v -E '^\*|main|master' | xargs -r git branch -d
 git fetch --prune
 ```
 

@@ -75,7 +75,7 @@ Attach an existing issue or PR, then set Status if the field exists:
 ```bash
 gh project item-add NUMBER --owner OWNER --url https://github.com/OWNER/REPO/issues/N
 gh project field-list NUMBER --owner OWNER
-gh project item-list NUMBER --owner OWNER --field Status --limit 50
+gh project item-list NUMBER --owner OWNER --limit 50
 ```
 
 Setting Status usually needs IDs from JSON. One field: `gh project item-edit` or GraphQL. Several fields on one item: REST PATCH in `references/rest.md`.

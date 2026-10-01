@@ -217,7 +217,27 @@ cmd_start() {
 
   log "Syncing with origin/$DEFAULT_BRANCH..."
   git switch "$DEFAULT_BRANCH"
-  git pull --ff-only
+
+  # Fetch latest remote state
+  git fetch origin "$DEFAULT_BRANCH" > /dev/null 2>&1 || true
+
+  # Check if local DEFAULT_BRANCH has unpushed commits ahead of origin
+  local ahead_count
+  ahead_count=$(git rev-list --count "origin/$DEFAULT_BRANCH..$DEFAULT_BRANCH" 2>/dev/null || echo "0")
+  if [[ "$ahead_count" -gt 0 ]]; then
+    error "Local $DEFAULT_BRANCH has $ahead_count unpushed commit(s) ahead of origin/$DEFAULT_BRANCH. Push or reset them before starting new work."
+  fi
+
+  if ! git pull --ff-only 2>/dev/null; then
+    warn "Could not fast-forward local $DEFAULT_BRANCH to origin/$DEFAULT_BRANCH."
+    if [[ -z $(git status --porcelain) ]]; then
+      log "Working tree is clean. Safely syncing local $DEFAULT_BRANCH with origin/$DEFAULT_BRANCH..."
+      git reset --hard "origin/$DEFAULT_BRANCH"
+      success "Local $DEFAULT_BRANCH synced with origin/$DEFAULT_BRANCH."
+    else
+      error "Working tree has uncommitted changes and local $DEFAULT_BRANCH cannot fast-forward. Stash changes and try again."
+    fi
+  fi
 
   local branch_slug
   if [[ -n "$slug_arg" ]]; then
@@ -419,7 +439,17 @@ cmd_ship() {
 
   log "Syncing local $DEFAULT_BRANCH..."
   git switch "$DEFAULT_BRANCH"
-  git pull --ff-only
+  git fetch origin "$DEFAULT_BRANCH"
+  if ! git pull --ff-only 2>/dev/null; then
+    warn "Could not fast-forward local $DEFAULT_BRANCH to origin/$DEFAULT_BRANCH (diverged history, common after squash-merge)."
+    if [[ -z $(git status --porcelain) ]]; then
+      log "Working tree is clean. Safely resetting local $DEFAULT_BRANCH to origin/$DEFAULT_BRANCH..."
+      git reset --hard "origin/$DEFAULT_BRANCH"
+      success "Local $DEFAULT_BRANCH successfully synced with origin/$DEFAULT_BRANCH."
+    else
+      error "Working tree has uncommitted changes. Stash or commit them before syncing."
+    fi
+  fi
 
   # Clean up local merged feature branch
   if [[ -n "$head_ref" && "$head_ref" != "$DEFAULT_BRANCH" ]]; then

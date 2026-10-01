@@ -62,12 +62,27 @@ Whenever an AI agent completes a step or presents a status summary (e.g. after r
 
 ````markdown
 ### Sonraki Adım / Next Step
+
 ```bash
 pnpm flow <next_command>
 ```
 ````
 
 Agents must never end a status report without this explicit next step block.
+
+---
+
+## Branch Divergence & Squash-Merge Protection
+
+To prevent `main` and `origin/main` history divergence when working with squash merges or unpushed commits:
+
+1. **Pre-Start Unpushed Commits Gate (`flow.sh start`)**:
+   - Automatically inspects the local default branch before creating feature branches.
+   - If local `main` has unpushed commits ahead of `origin/main`, the command aborts with an error, preventing work from starting on a dirty/diverged base.
+2. **Post-Merge Clean Resync (`flow.sh ship`)**:
+   - If fast-forwarding the local default branch fails (e.g. commit hashes diverged due to squash-merge replacement on GitHub), `flow.sh ship` automatically verifies the working tree is clean and safely resyncs local `main` to `origin/main` via `git reset --hard`.
+3. **Zero Direct Commits on `main`**:
+   - All code edits, fixes, refactorings, and chore tasks must be completed inside dedicated branches created by `pnpm flow start <issue_no>`.
 
 ---
 

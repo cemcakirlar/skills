@@ -3,7 +3,7 @@ name: github-cli
 description: Work on GitHub repositories from the command line with git and the official gh CLI. Use for clone, branch, commit, push, issues, pull requests, reviews, checks, releases, Actions runs, forks, code search, and GitHub API calls. Triggers on GitHub, gh, git repo, open a PR, create issue, merge pull request, review PR, gh api, release, workflow run, fork, and similar repo-workflow requests.
 metadata:
   type: workflow
-  version: "1.1"
+  version: "1.2"
   stack: git+gh
 ---
 
@@ -34,7 +34,19 @@ Projects v2 boards, fields, and items are the sibling skill `github-projects` â€
 
 Never use the GitHub website when an equivalent `gh`/`git` command works, unless the user asked for a browser link.
 
-If this environment exposes GitHub connector/MCP tools and the task is metadata-only (list issues, read a file, open a PR) with no need for a local working tree, those tools are acceptable. Prefer `git`+`gh` whenever the user wants a real clone, tests, or history rewrite.
+### Agents: `gh` over GitHub MCP (hard rule)
+
+When creating or mutating GitHub resources (**issues, PRs, comments, labels, merges, releases**), **always use `gh` / `gh api` via the shell**. Do **not** use GitHub connector/MCP write tools (`issue_write`, `create_pull_request`, `create_branch`, etc.) for those jobs.
+
+Reasons:
+
+1. MCP write tools often open an interactive approval form and stall until the user clicks Submit.
+2. `gh` runs non-interactively, returns the URL immediately, and matches this skillâ€™s recipes.
+3. Shell `gh` must run **outside the sandbox** (`required_permissions: ["all"]`). Sandboxed shells cannot read the OS keyring, so `gh` reports an invalid token / GraphQL `Forbidden` even when the user is logged in.
+
+GitHub MCP **read** tools (list/view/search) are optional when they do not prompt. Prefer `gh` for reads too when a clone or auth context is already available.
+
+Prefer `git`+`gh` whenever the user wants a real clone, tests, or history rewrite.
 
 ---
 

@@ -16,6 +16,7 @@ Inspect drift between locally modified agent skills (`.agents/skills/`, `.claude
 ## 1. Why `skills-upstream`?
 
 When working inside a project that uses vendor skills:
+
 1. **Local Drift Prevention**: Local fixes to skill scripts can be wiped out on `npx skills update` unless they are contributed back to upstream.
 2. **Batching over Micro-PRs**: Group multiple skill refinements (e.g. fixes across `github-flow`, `github-cli`, etc.) into a **single cohesive upstream PR** instead of opening micro-PRs for every single edit.
 3. **Decoupled & Machine-Agnostic**: Reads `skills-lock.json` directly to resolve upstream remotes via GitHub CLI (`gh`). Automatically handles both direct repository pushes and community fork workflows.
@@ -24,16 +25,17 @@ When working inside a project that uses vendor skills:
 
 ## 2. Commands & Workflow
 
-| Command | Action |
-| :--- | :--- |
-| `status`, `check` | Scans installed skills in `skills-lock.json` and displays a drift table (In sync vs Modified). |
-| `diff` | Shows unified colorized diffs for all modified skills against upstream. |
-| `pr [title] [body]` | Collects all modified skills, creates an upstream branch, and opens a single Pull Request. |
-| `sources` | Lists all upstream repositories tracked in the lockfile with their skill counts. |
+| Command               | Action                                                                                               |
+| :-------------------- | :--------------------------------------------------------------------------------------------------- |
+| `status`, `check`     | Scans installed skills in `skills-lock.json` and displays a drift table (In sync vs Modified).       |
+| `diff`                | Shows unified colorized diffs for all modified skills against upstream.                              |
+| `pr [title] [body]`   | Collects all modified skills, creates an upstream branch, and opens a single Pull Request.           |
+| `sync [title] [body]` | **One-shot:** runs status, auto-picks the dirty source when unambiguous, then opens the upstream PR. |
+| `sources`             | Lists all upstream repositories tracked in the lockfile with their skill counts.                     |
 
 ### Options
 
-- `-s, --source <repo>`: Target a specific upstream repository (e.g. `cemcakirlar/skills`). **Strictly required for `pr`** to prevent accidental pushes.
+- `-s, --source <repo>`: Target a specific upstream repository (e.g. `cemcakirlar/skills`). Required for `pr` when multiple sources exist; for `sync`, auto-selected when exactly one source has changes.
 - `-k, --skill <name>`: Target a specific skill only (e.g. `github-flow`), leaving other modified skills untouched.
 - `-y, --yes`: Auto-confirm PR creation without interactive prompt.
 - `-l, --lock <path>`: Specify a custom lockfile path (auto-detects `skills-lock.json`, `.skill-lock.json`, `.agents/.skill-lock.json`).
@@ -45,8 +47,8 @@ When working inside a project that uses vendor skills:
 # Check drift against all detected upstream sources
 ./scripts/upstream.sh status
 
-# Target a specific upstream repository
-./scripts/upstream.sh status --source cemcakirlar/skills
+# One-shot: detect drift + open upstream PR
+./scripts/upstream.sh sync --source cemcakirlar/skills -y
 
 # Target a single skill only
 ./scripts/upstream.sh diff --skill github-flow

@@ -44,6 +44,7 @@ ${BOLD}Commands:${NC}
   status, check         Display drift status table across installed skills
   diff                  Show unified diff for modified skills against upstream
   pr [title] [body]     Batch-commit modified skills and open an upstream PR
+  sync [title] [body]   One-shot: show drift status, then open upstream PR
   sources               List all upstream sources found in the lockfile
   help, -h, --help      Show this help message
 
@@ -58,6 +59,7 @@ ${BOLD}Examples:${NC}
   ./scripts/upstream.sh status
   ./scripts/upstream.sh status --source cemcakirlar/skills
   ./scripts/upstream.sh diff --skill github-flow
+  ./scripts/upstream.sh sync --source cemcakirlar/skills -y
   ./scripts/upstream.sh pr --source cemcakirlar/skills --skill github-flow "feat: enhance flow"
 EOF
 }
@@ -83,7 +85,7 @@ EXTRA_ARGS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    status|check|diff|pr|sources)
+    status|check|diff|pr|sync|sources)
       COMMAND="$1"
       shift
       ;;
@@ -403,38 +405,34 @@ inspect_source_status() {
     echo ""
     echo -e "  ${BOLD}Next actions:${NC}"
 
+    local sync_base
+    sync_base="$(resolve_upstream_cmd sync)"
     local diff_base
     diff_base="$(resolve_upstream_cmd diff)"
-    local pr_base
-    pr_base="$(resolve_upstream_cmd pr)"
 
     if [[ -n "$TARGET_SKILL" ]]; then
+      echo -e "    Detect + open upstream PR (one-shot):"
+      echo -e "      ${GREEN}$sync_base --source $src --skill $TARGET_SKILL${NC}"
+      echo ""
       echo -e "    View unified diff:"
       echo -e "      ${GREEN}$diff_base --source $src --skill $TARGET_SKILL${NC}"
-      echo ""
-      echo -e "    Open upstream PR:"
-      echo -e "      ${GREEN}$pr_base --source $src --skill $TARGET_SKILL${NC}"
     elif [[ $changed_count -eq 1 ]]; then
       local single_skill="${changed_skills[0]}"
-      echo -e "    View unified diff:"
-      echo -e "      ${GREEN}$diff_base --source $src${NC}"
+      echo -e "    Detect + open upstream PR (one-shot):"
+      echo -e "      ${GREEN}$sync_base --source $src${NC}"
       echo -e "      (or specific skill)"
-      echo -e "      ${GREEN}$diff_base --source $src --skill $single_skill${NC}"
+      echo -e "      ${GREEN}$sync_base --source $src --skill $single_skill${NC}"
       echo ""
-      echo -e "    Open upstream PR:"
-      echo -e "      ${GREEN}$pr_base --source $src${NC}"
-      echo -e "      (or specific skill)"
-      echo -e "      ${GREEN}$pr_base --source $src --skill $single_skill${NC}"
+      echo -e "    View unified diff:"
+      echo -e "      ${GREEN}$diff_base --source $src --skill $single_skill${NC}"
     else
+      echo -e "    Detect + open upstream PR (one-shot, all modified):"
+      echo -e "      ${GREEN}$sync_base --source $src${NC}"
+      echo -e "      (or specific skill)"
+      echo -e "      ${GREEN}$sync_base --source $src --skill <skill_name>${NC}"
+      echo ""
       echo -e "    View unified diff (all modified):"
       echo -e "      ${GREEN}$diff_base --source $src${NC}"
-      echo -e "      (or specific skill)"
-      echo -e "      ${GREEN}$diff_base --source $src --skill <skill_name>${NC}"
-      echo ""
-      echo -e "    Open upstream PR (all modified):"
-      echo -e "      ${GREEN}$pr_base --source $src${NC}"
-      echo -e "      (or specific skill)"
-      echo -e "      ${GREEN}$pr_base --source $src --skill <skill_name>${NC}"
     fi
   else
     success "All $total_count skills for $src are completely in sync!"
@@ -491,13 +489,13 @@ inspect_source_diff() {
     success "No differences found for $src. All skills are in sync."
   else
     echo -e "  ${BOLD}Next action:${NC}"
-    echo -e "    Open upstream PR:"
-    local pr_base
-    pr_base="$(resolve_upstream_cmd pr)"
+    echo -e "    Detect + open upstream PR (one-shot):"
+    local sync_base
+    sync_base="$(resolve_upstream_cmd sync)"
     if [[ -n "$TARGET_SKILL" ]]; then
-      echo -e "      ${GREEN}$pr_base --source $src --skill $TARGET_SKILL${NC}"
+      echo -e "      ${GREEN}$sync_base --source $src --skill $TARGET_SKILL${NC}"
     else
-      echo -e "      ${GREEN}$pr_base --source $src${NC}"
+      echo -e "      ${GREEN}$sync_base --source $src${NC}"
     fi
   fi
   echo ""
@@ -685,6 +683,80 @@ EOF
   success "Upstream PR opened successfully: $pr_url"
 }
 
+# Returns 0 if source has at least one local skill differing from upstream.
+source_has_changes() {
+  local src="$1"
+  local upstream_dir
+  upstream_dir=$(ensure_upstream_clone "$src")
+
+  for skill in $(get_source_skills "$src"); do
+    local local_skill_dir
+    local_skill_dir=$(find_local_skill_dir "$skill" || true)
+    [[ -z "$local_skill_dir" || ! -d "$local_skill_dir" ]] && continue
+
+    local upstream_skill_dir
+    upstream_skill_dir=$(get_upstream_skill_dir "$skill" "$upstream_dir")
+
+    if [[ ! -d "$upstream_skill_dir" ]]; then
+      return 0
+    fi
+
+    local diff_stat
+    diff_stat=$(diff -ru -x ".DS_Store" -x "node_modules" -x ".git" "$upstream_skill_dir" "$local_skill_dir" 2>/dev/null || true)
+    if [[ -n "$diff_stat" ]]; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+# One-shot: status → resolve source → pr
+cmd_sync() {
+  cmd_status
+
+  if [[ -z "$TARGET_SOURCE" ]]; then
+    local dirty_sources=()
+    local all_sources=()
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && all_sources+=("$line")
+    done < <(get_all_sources)
+
+    for src in "${all_sources[@]}"; do
+      if source_has_changes "$src"; then
+        dirty_sources+=("$src")
+      fi
+    done
+
+    if [[ ${#dirty_sources[@]} -eq 0 ]]; then
+      success "Nothing to sync — all skills already match upstream."
+      return 0
+    fi
+
+    if [[ ${#dirty_sources[@]} -gt 1 ]]; then
+      warn "Multiple upstream repositories have local changes. Pick one with --source."
+      echo ""
+      echo -e "  ${BOLD}Dirty sources:${NC}"
+      for s in "${dirty_sources[@]}"; do
+        echo -e "    • $s"
+      done
+      echo ""
+      local sync_base
+      sync_base="$(resolve_upstream_cmd sync)"
+      error "Re-run with: $sync_base --source <owner/repo>"
+    fi
+
+    TARGET_SOURCE="${dirty_sources[0]}"
+    log "Auto-selected upstream source: ${BOLD}$TARGET_SOURCE${NC}"
+  elif ! source_has_changes "$TARGET_SOURCE"; then
+    success "Nothing to sync — $TARGET_SOURCE already matches local skills."
+    return 0
+  fi
+
+  log "Opening upstream PR for ${BOLD}$TARGET_SOURCE${NC}..."
+  cmd_pr
+}
+
 # -----------------------------------------------------------------------------
 # Dispatcher
 # -----------------------------------------------------------------------------
@@ -692,6 +764,7 @@ case "$COMMAND" in
   status|check) cmd_status ;;
   diff)         cmd_diff ;;
   pr)           cmd_pr ;;
+  sync)         cmd_sync ;;
   sources)      cmd_sources ;;
   *) error "Unknown command '$COMMAND'. Run './scripts/upstream.sh help' for usage." ;;
 esac

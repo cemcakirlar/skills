@@ -3,7 +3,7 @@ name: github-flow
 description: Automate the end-to-end GitHub issue lifecycle starting work, quality checks, opening PRs with GraphQL issue linking, squash-merging, project board status synchronization, and post-merge deployment webhooks. Use for standardized issue pickup, PR linking, and deployment flows across projects. Triggers on flow.sh, issue flow, start issue, ship PR, link PR, deploy hook, and GitHub lifecycle workflow requests.
 metadata:
   type: workflow
-  version: "1.0"
+  version: "1.2"
   stack: git+gh
 ---
 
@@ -23,42 +23,65 @@ This skill connects three separate GitHub systems into a single seamless loop:
 
 ```mermaid
 flowchart LR
-    A[0. next] --> B[1. start <issue>]
-    B --> C[2. check]
-    C --> D[3. pr <issue>]
-    D --> E[4. ship <pr>]
+    A[0. next] --> B[1. start]
+    B --> C[1b. implement]
+    C --> D[2. check]
+    D --> E[3. pr]
+    E --> F[4. ship]
 ```
 
-| Step         | Command                                          | What It Does                                                                                                                     |
-| ------------ | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| **0. Next**  | `./scripts/flow.sh next [--start]`               | Lists open backlog issues, displays next candidate in queue, and optionally starts work.                                         |
-| **1. Start** | `./scripts/flow.sh start <issue_no> [slug]`      | Syncs default branch, sets Project board status to **In Progress**, and creates `feature/<slug>` branch.                         |
-| **2. Check** | `./scripts/flow.sh check`                        | Runs project verification gates (typecheck, tests, build) and shows git status.                                                  |
-| **3. PR**    | `./scripts/flow.sh pr <issue_no> [title] [body]` | Commits changes, pushes branch, opens PR, and links PR to issue via GraphQL.                                                     |
-| **Link**     | `./scripts/flow.sh link <issue_no> <pr_no>`      | Standalone command to link any PR to an issue via GraphQL.                                                                       |
-| **4. Ship**  | `./scripts/flow.sh ship [pr_no]`                 | Squash-merges PR, deletes remote branch, syncs local default branch, marks board item **Done**, and triggers deployment webhook. |
-| **Deploy**   | `./scripts/flow.sh deploy`                       | Standalone trigger for the deployment webhook (`POST`).                                                                          |
-| **Status**   | `./scripts/flow.sh status`                       | Displays active branch, associated PR, and project board link.                                                                   |
+| Step              | Command / action                                   | What It Does                                                                                                                                                                                                                     |
+| ----------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **0. Next**       | `./scripts/flow.sh next [--start]`                 | Lists open backlog issues, displays next candidate in queue, and optionally starts work. If backlog is empty and work needs an issue, create one with `gh issue create` (see `github-cli`; never MCP write forms), then `start`. |
+| **1. Start**      | `./scripts/flow.sh start <issue_no> [slug]`        | Syncs default branch, sets Project board status to **In Progress**, and creates `feature/<slug>` branch.                                                                                                                         |
+| **1b. Implement** | _(no `flow` command — agent/human edits the code)_ | **Required gap between `start` and `check`.** Implement the issue on the feature branch (code, tests, docs). `flow` does not automate this; jumping straight to `check` after `start` is wrong.                                  |
+| **2. Check**      | `./scripts/flow.sh check`                          | Runs project verification gates (typecheck, tests, build) and shows git status. Only after implementation is done.                                                                                                               |
+| **3. PR**         | `./scripts/flow.sh pr <issue_no> [title] [body]`   | Commits changes, pushes branch, opens PR, and links PR to issue via GraphQL.                                                                                                                                                     |
+| **Link**          | `./scripts/flow.sh link <issue_no> <pr_no>`        | Standalone command to link any PR to an issue via GraphQL.                                                                                                                                                                       |
+| **4. Ship**       | `./scripts/flow.sh ship [pr_no]`                   | Squash-merges PR, deletes remote branch, syncs local default branch, marks board item **Done**, and triggers deployment webhook.                                                                                                 |
+| **Deploy**        | `./scripts/flow.sh deploy`                         | Standalone trigger for the deployment webhook (`POST`).                                                                                                                                                                          |
+| **Status**        | `./scripts/flow.sh status`                         | Displays active branch, associated PR, and project board link.                                                                                                                                                                   |
+
+### Why there is no `flow implement`
+
+Implementation is the product work itself (edit files, run the app, write tests). A CLI wrapper cannot usefully “do” that. The lifecycle still treats it as an explicit step so agents never treat `start → check` as adjacent commands.
 
 ---
 
 ## Step Chaining & Agent Response Rules (MANDATORY)
 
-To guarantee high engineering velocity and maintain clear conversational context, **every step in the `github-flow` lifecycle deterministically points to the next command**.
+To guarantee high engineering velocity and maintain clear conversational context, **every step in the `github-flow` lifecycle deterministically points to the next action**.
 
 ### Transition Rules
 
-| Step Completed            | State / Context                                  | Next Command to Run / Recommend     |
-| :------------------------ | :----------------------------------------------- | :---------------------------------- |
-| **0. `next`**             | Backlog issue reviewed/selected                  | `pnpm flow start <issue_no> [slug]` |
-| **1. `start <issue_no>`** | Feature branch created, code changes ready       | `pnpm flow check`                   |
-| **2. `check`**            | Quality gates passed (typecheck, tests, build)   | `pnpm flow pr <issue_no> "[title]"` |
-| **3. `pr <issue_no>`**    | PR created and linked to issue                   | `pnpm flow ship [pr_no]`            |
-| **4. `ship [pr_no]`**     | PR merged, branch deleted, default branch synced | `pnpm flow next [--start]`          |
+| Step Completed            | State / Context                                   | Next action                                                        |
+| :------------------------ | :------------------------------------------------ | :----------------------------------------------------------------- |
+| **0. `next`**             | Backlog issue reviewed/selected                   | `pnpm flow start <issue_no> [slug]`                                |
+| **1. `start <issue_no>`** | Feature branch created; **no code yet**           | **Implement the issue** (edit code). Do **not** recommend `check`. |
+| **1b. Implement**         | Code changes for the issue are done on the branch | `pnpm flow check`                                                  |
+| **2. `check`**            | Quality gates passed (typecheck, tests, build)    | `pnpm flow pr <issue_no> "[title]"`                                |
+| **3. `pr <issue_no>`**    | PR created and linked to issue                    | `pnpm flow ship [pr_no]`                                           |
+| **4. `ship [pr_no]`**     | PR merged, branch deleted, default branch synced  | `pnpm flow next [--start]`                                         |
+
+### After `start` — agent warning (MANDATORY)
+
+When `flow start` finishes, agents **must not** tell the user to run `pnpm flow check` next. Report that implementation is the next step. Only after the code for the issue exists should the agent recommend `pnpm flow check`.
+
+````markdown
+### Sonraki Adım / Next Step
+
+Implement issue #<n> on this branch (code/tests). When the change is done:
+
+```bash
+pnpm flow check
+```
+````
 
 ### AI Agent Reporting Requirement
 
-Whenever an AI agent completes a step or presents a status summary (e.g. after running `flow check` or `flow start`), **it MUST always append the next command to execute immediately below its summary report**:
+Whenever an AI agent completes a step or presents a status summary (e.g. after running `flow check` or `flow start`), **it MUST always append the next action immediately below its summary report**.
+
+For flow CLI steps (after implement is done), use:
 
 ````markdown
 ### Sonraki Adım / Next Step
@@ -140,6 +163,7 @@ See `references/flowrc.example` for a complete template.
    Use `pnpm flow` (`.agents/skills/github-flow/scripts/flow.sh`) for issue lifecycle:
 
    - `pnpm flow start <issue_no>`
+   - implement the issue (no `flow` command)
    - `pnpm flow check`
    - `pnpm flow pr <issue_no> [title]`
    - `pnpm flow ship [pr_no]`

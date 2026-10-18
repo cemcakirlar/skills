@@ -2,15 +2,15 @@
 set -euo pipefail
 
 # =============================================================================
-# github-flow — Generic GitHub Issue, PR & Project Lifecycle CLI
+# github-flow — Generic GitHub Issue & PR Lifecycle CLI
 # =============================================================================
 
-# Colors
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m' # No Color
+GREEN=$'\033[0;32m'
+BLUE=$'\033[0;34m'
+YELLOW=$'\033[1;33m'
+RED=$'\033[0;31m'
+BOLD=$'\033[1m'
+NC=$'\033[0m' # No Color
 
 log() {
   echo -e "${BLUE}==>${NC} $*"
@@ -32,7 +32,7 @@ error() {
 # -----------------------------------------------------------------------------
 # Configuration Loading
 # -----------------------------------------------------------------------------
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+REPO_ROOT=$(cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" && pwd -P)
 
 # Load configuration from .flowrc if present
 if [[ -f "$REPO_ROOT/.flowrc" ]]; then
@@ -62,24 +62,9 @@ if [[ -z "$DEFAULT_BRANCH" ]]; then
   DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
 fi
 
-# Project board defaults
-PROJECT_NUM="${PROJECT_NUM:-}"
-PROJECT_OWNER="${PROJECT_OWNER:-$REPO_OWNER}"
-STATUS_FIELD_NAME="${STATUS_FIELD_NAME:-Status}"
-STATUS_TODO_NAME="${STATUS_TODO_NAME:-Todo}"
-STATUS_IN_PROGRESS_NAME="${STATUS_IN_PROGRESS_NAME:-In Progress}"
-STATUS_DONE_NAME="${STATUS_DONE_NAME:-Done}"
-
 # Workflow defaults
 BRANCH_PREFIX="${BRANCH_PREFIX:-feature/}"
 CHECK_CMD="${CHECK_CMD:-}"
-DEPLOY_HOOK_URL="${DEPLOY_HOOK_URL:-}"
-
-# Cache variables for project resolution
-CACHED_PROJECT_ID=""
-CACHED_STATUS_FIELD_ID=""
-CACHED_IN_PROGRESS_OPTION_ID=""
-CACHED_DONE_OPTION_ID=""
 
 # -----------------------------------------------------------------------------
 # Helpers
@@ -96,54 +81,6 @@ clean_issue_title() {
     | sed -E 's/^[A-Za-z0-9_-]+[ ]*([—–-]|:)[ ]*//' \
     | sed -E 's/^\[[^]]+\][ ]*//' \
     | sed -E 's/^[A-Za-z0-9_-]+:[ ]*//'
-}
-
-resolve_project_details() {
-  [[ -z "$PROJECT_NUM" ]] && return 0
-  [[ -n "$CACHED_PROJECT_ID" ]] && return 0
-
-  local project_json
-  project_json=$(gh project view "$PROJECT_NUM" --owner "$PROJECT_OWNER" --format json 2>/dev/null || true)
-  if [[ -z "$project_json" ]]; then
-    warn "Project #$PROJECT_NUM not accessible under owner '$PROJECT_OWNER'; board operations disabled."
-    return 0
-  fi
-
-  CACHED_PROJECT_ID=$(echo "$project_json" | jq -r .id)
-
-  local fields_json
-  fields_json=$(gh project field-list "$PROJECT_NUM" --owner "$PROJECT_OWNER" --format json 2>/dev/null || true)
-  if [[ -n "$fields_json" ]]; then
-    local status_field
-    status_field=$(echo "$fields_json" | jq -r ".fields[] | select(.name == \"$STATUS_FIELD_NAME\" and .type == \"ProjectV2SingleSelectField\")" 2>/dev/null || true)
-    if [[ -n "$status_field" ]]; then
-      CACHED_STATUS_FIELD_ID=$(echo "$status_field" | jq -r .id)
-      CACHED_IN_PROGRESS_OPTION_ID=$(echo "$status_field" | jq -r ".options[] | select(.name == \"$STATUS_IN_PROGRESS_NAME\") | .id" 2>/dev/null || true)
-      CACHED_DONE_OPTION_ID=$(echo "$status_field" | jq -r ".options[] | select(.name == \"$STATUS_DONE_NAME\") | .id" 2>/dev/null || true)
-    fi
-  fi
-}
-
-get_project_item_id() {
-  local issue_no="$1"
-  [[ -z "$PROJECT_NUM" || -z "$issue_no" ]] && echo "" && return 0
-
-  gh project item-list "$PROJECT_NUM" --owner "$PROJECT_OWNER" --format json 2>/dev/null \
-    | jq -r --argjson num "$issue_no" '.items[]? | select(.content.number? == $num) | .id' 2>/dev/null || echo ""
-}
-
-set_item_status() {
-  local item_id="$1"
-  local target_option_id="$2"
-
-  resolve_project_details
-  if [[ -n "$CACHED_PROJECT_ID" && -n "$CACHED_STATUS_FIELD_ID" && -n "$target_option_id" ]]; then
-    gh project item-edit \
-      --project-id "$CACHED_PROJECT_ID" \
-      --id "$item_id" \
-      --field-id "$CACHED_STATUS_FIELD_ID" \
-      --single-select-option-id "$target_option_id" > /dev/null 2>&1 || true
-  fi
 }
 
 detect_check_command() {
@@ -193,9 +130,83 @@ resolve_flow_cmd() {
   fi
 }
 
+# Absolute path to this flow.sh (works when invoked via pnpm/npm wrappers)
+flow_script_abs() {
+  local src dir
+  src="${BASH_SOURCE[0]}"
+  dir=$(cd "$(dirname "$src")" && pwd -P)
+  echo "$dir/$(basename "$src")"
+}
+
+# Path to flow.sh relative to REPO_ROOT (for package.json scripts.flow)
+flow_script_rel() {
+  local abs root
+  abs=$(flow_script_abs)
+  root=$(cd "$REPO_ROOT" && pwd -P)
+  local rel="${abs#"$root"/}"
+  if [[ "$rel" == "$abs" ]]; then
+    error "flow.sh is outside the repository root ($root). Cannot wire package.json."
+  fi
+  echo "$rel"
+}
+
+flow_skill_dir() {
+  local abs
+  abs=$(flow_script_abs)
+  dirname "$(dirname "$abs")"
+}
+
 # -----------------------------------------------------------------------------
 # Commands
 # -----------------------------------------------------------------------------
+
+cmd_init() {
+  local pkg="$REPO_ROOT/package.json"
+  local flowrc="$REPO_ROOT/.flowrc"
+  local example
+  example="$(flow_skill_dir)/references/flowrc.example"
+  local script_rel
+  script_rel=$(flow_script_rel)
+  local flow_cmd="bash $script_rel"
+
+  log "Initializing github-flow in $REPO_ROOT"
+
+  if [[ ! -f "$pkg" ]]; then
+    warn "No package.json at repo root — skipped scripts.flow"
+  else
+    command -v jq >/dev/null 2>&1 || error "jq is required to update package.json"
+    local existing
+    existing=$(jq -r '.scripts.flow // empty' "$pkg" 2>/dev/null || true)
+    if [[ -n "$existing" ]]; then
+      if [[ "$existing" == "$flow_cmd" ]]; then
+        success "package.json scripts.flow already set"
+      else
+        warn "package.json already has scripts.flow — leaving unchanged"
+        echo "  current: $existing"
+        echo "  wanted:  $flow_cmd"
+      fi
+    else
+      local tmp
+      tmp=$(mktemp)
+      jq --arg cmd "$flow_cmd" '.scripts = ((.scripts // {}) + {flow: $cmd})' "$pkg" > "$tmp"
+      mv "$tmp" "$pkg"
+      success "Added scripts.flow → $flow_cmd"
+    fi
+  fi
+
+  if [[ -f "$flowrc" ]]; then
+    warn ".flowrc already exists — leaving unchanged"
+  else
+    [[ -f "$example" ]] || error "Missing template: $example"
+    cp "$example" "$flowrc"
+    success "Created .flowrc from references/flowrc.example"
+  fi
+
+  echo ""
+  success "github-flow init complete"
+  echo "Next step: pick up work with:"
+  echo -e "  ${GREEN}$(resolve_flow_cmd) next${NC}"
+}
 
 cmd_start() {
   local issue_no="${1:-}"
@@ -255,22 +266,6 @@ cmd_start() {
   log "Creating branch: $branch_name"
   git switch -c "$branch_name"
 
-  resolve_project_details
-  if [[ -n "$PROJECT_NUM" ]]; then
-    log "Updating Project #$PROJECT_NUM status..."
-    local item_id
-    item_id=$(get_project_item_id "$issue_no")
-    if [[ -z "$item_id" ]]; then
-      log "Issue #$issue_no not on board yet, adding..."
-      local issue_url="https://github.com/$REPO_OWNER/$REPO_NAME/issues/$issue_no"
-      item_id=$(gh project item-add "$PROJECT_NUM" --owner "$PROJECT_OWNER" --url "$issue_url" --format json --jq .id 2>/dev/null || true)
-    fi
-    if [[ -n "$item_id" && -n "$CACHED_IN_PROGRESS_OPTION_ID" ]]; then
-      set_item_status "$item_id" "$CACHED_IN_PROGRESS_OPTION_ID"
-      success "Board item status updated to '$STATUS_IN_PROGRESS_NAME'"
-    fi
-  fi
-
   success "Ready to work on issue #$issue_no on branch '$branch_name'!"
   echo ""
   warn "Implement the issue on this branch before running check."
@@ -320,7 +315,7 @@ cmd_link() {
     }
   }' -F issueId="$issue_node_id" -F pullRequestId="$pr_node_id" > /dev/null
 
-  success "Linked PR #$pr_no to Issue #$issue_no (populates Project Linked PRs)."
+  success "Linked PR #$pr_no to Issue #$issue_no."
 }
 
 cmd_pr() {
@@ -469,51 +464,10 @@ cmd_ship() {
     done
   fi
 
-  resolve_project_details
-  if [[ -n "$PROJECT_NUM" && -n "$linked_issues" && -n "$CACHED_DONE_OPTION_ID" ]]; then
-    for issue_no in $linked_issues; do
-      log "Updating Project #$PROJECT_NUM status for Issue #$issue_no to '$STATUS_DONE_NAME'..."
-      local item_id
-      item_id=$(get_project_item_id "$issue_no")
-      if [[ -n "$item_id" ]]; then
-        set_item_status "$item_id" "$CACHED_DONE_OPTION_ID"
-        success "Issue #$issue_no marked as '$STATUS_DONE_NAME' on board."
-      fi
-    done
-  fi
-
-  if [[ -n "$DEPLOY_HOOK_URL" ]]; then
-    cmd_deploy
-  fi
-
   success "Ship completed successfully!"
   echo ""
   echo "Next step: pick up next issue with:"
   echo -e "  ${GREEN}$(resolve_flow_cmd) next${NC}"
-}
-
-cmd_deploy() {
-  if [[ -z "$DEPLOY_HOOK_URL" ]]; then
-    error "DEPLOY_HOOK_URL is not configured in .flowrc or environment."
-  fi
-
-  log "Triggering deployment webhook..."
-  local response http_code body
-  response=$(curl -s -w "\n%{http_code}" -X POST "$DEPLOY_HOOK_URL")
-  http_code=$(echo "$response" | tail -n 1)
-  body=$(echo "$response" | sed '$d')
-
-  if [[ "$http_code" =~ ^2[0-9]{2}$ ]]; then
-    local build_uuid
-    build_uuid=$(echo "$body" | jq -r '.result.build_uuid // empty' 2>/dev/null || echo "")
-    if [[ -n "$build_uuid" ]]; then
-      success "Deploy hook queued successfully! (Build UUID: $build_uuid, HTTP $http_code)"
-    else
-      success "Deploy hook triggered successfully! (HTTP $http_code)"
-    fi
-  else
-    warn "Deploy webhook returned HTTP $http_code: $body"
-  fi
 }
 
 cmd_next() {
@@ -571,37 +525,42 @@ cmd_status() {
   else
     echo "Active PR: None"
   fi
-  if [[ -n "$PROJECT_NUM" ]]; then
-    echo "Project Board: https://github.com/users/$PROJECT_OWNER/projects/$PROJECT_NUM"
-  fi
 }
 
 cmd_help() {
   cat <<EOF
-github-flow CLI (scripts/flow.sh)
+${BOLD}github-flow CLI (scripts/flow.sh)${NC}
 
-Generic GitHub issue, pull request, project board, and deployment automation tool.
+Generic GitHub issue and pull request lifecycle automation.
 
-Usage:
+${BOLD}Usage:${NC}
   ./scripts/flow.sh <command> [arguments]
 
-Commands:
+${BOLD}Commands:${NC}
+  init                       Wire package.json scripts.flow and create .flowrc (skip if present)
   next [--start]             List open backlog issues and display next candidate (optionally start)
-  start <issue_no> [slug]    Start work on an issue (syncs default branch, sets board In Progress, creates branch)
+  start <issue_no> [slug]    Start work on an issue (syncs default branch, creates feature branch)
   check                      Run quality gate (auto-detected or configured in .flowrc)
-  pr <issue_no> [title]      Commit, push, create PR and link PR to issue (populates project board)
+  pr <issue_no> [title]      Commit, push, create PR and link PR to issue
   link <issue_no> <pr_no>    Explicitly link a PR to an issue via GraphQL mutation
-  ship [pr_no]               Squash-merge PR, sync default branch, set board Done, and trigger deploy hook
-  deploy                     Trigger deployment hook manually via POST
-  status                     Display repository, branch, active PR, and project board status
-  help                       Show this help message
+  ship [pr_no]               Squash-merge PR, sync default branch, close linked issues
+  status                     Display repository, branch, and active PR
+  help, -h, --help           Show this help message
 
-Lifecycle note:
+${BOLD}Lifecycle note:${NC}
   After start, implement the issue on the feature branch (no flow subcommand), then check → pr → ship.
 
-Configuration (.flowrc):
-  Place a .flowrc in your repository root to configure Project number, Status fields,
-  custom quality check commands, and deploy webhooks. See references/flowrc.example.
+${BOLD}Configuration (.flowrc):${NC}
+  Run init once per repo, or copy references/flowrc.example manually.
+  Customize CHECK_CMD and branching conventions as needed.
+
+${BOLD}Examples:${NC}
+  ./scripts/flow.sh init
+  ./scripts/flow.sh next
+  ./scripts/flow.sh start 12
+  ./scripts/flow.sh check
+  ./scripts/flow.sh pr 12 "feat: add health endpoint"
+  ./scripts/flow.sh ship 34
 EOF
 }
 
@@ -613,13 +572,13 @@ main() {
   shift || true
 
   case "$cmd" in
+    init)   cmd_init "$@" ;;
     next)   cmd_next "$@" ;;
     start)  cmd_start "$@" ;;
     check)  cmd_check "$@" ;;
     link)   cmd_link "$@" ;;
     pr)     cmd_pr "$@" ;;
     ship)   cmd_ship "$@" ;;
-    deploy) cmd_deploy "$@" ;;
     status) cmd_status "$@" ;;
     help|-h|--help) cmd_help ;;
     *) error "Unknown command '$cmd'. Run '$0 help' for available commands." ;;

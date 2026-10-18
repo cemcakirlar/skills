@@ -1,21 +1,17 @@
 ---
 name: github-flow
-description: Automate the end-to-end GitHub issue lifecycle starting work, quality checks, opening PRs with GraphQL issue linking, squash-merging, project board status synchronization, and post-merge deployment webhooks. Use for standardized issue pickup, PR linking, and deployment flows across projects. Triggers on flow.sh, issue flow, start issue, ship PR, link PR, deploy hook, and GitHub lifecycle workflow requests.
+description: Automate the end-to-end GitHub issue lifecycle starting work, quality checks, opening PRs with GraphQL issue linking, and squash-merging. Use for standardized issue pickup and PR linking across repositories. Triggers on flow.sh, flow init, issue flow, start issue, ship PR, link PR, and GitHub lifecycle workflow requests. Board/status work belongs in github-projects, not this skill.
 metadata:
   type: workflow
-  version: "1.2"
+  version: "1.5"
   stack: git+gh
 ---
 
 # GitHub Flow
 
-Automate the full GitHub issue-to-production lifecycle through a unified CLI script (`scripts/flow.sh`) and standardized GitHub CLI/GraphQL patterns.
+Automate the GitHub issue-to-merge lifecycle through a unified CLI script (`scripts/flow.sh`) and standardized GitHub CLI/GraphQL patterns.
 
-This skill connects three separate GitHub systems into a single seamless loop:
-
-1. **Repository Git & PRs** (`git` + `gh pr`)
-2. **Issue Tracking & Project Boards** (`gh project` + GitHub Projects v2)
-3. **Continuous Deployment** (Cloudflare, Vercel, Netlify, or custom webhooks)
+Scope: **Repository Git, Issues & PRs** (`git` + `gh issue` / `gh pr`). Project board sync is out of scope — use `github-projects`.
 
 ---
 
@@ -32,15 +28,15 @@ flowchart LR
 
 | Step              | Command / action                                   | What It Does                                                                                                                                                                                                                     |
 | ----------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Init**          | `./scripts/flow.sh init`                           | One-time repo setup: adds `scripts.flow` to `package.json` and creates `.flowrc` from the example (skips either if already present).                                                                                             |
 | **0. Next**       | `./scripts/flow.sh next [--start]`                 | Lists open backlog issues, displays next candidate in queue, and optionally starts work. If backlog is empty and work needs an issue, create one with `gh issue create` (see `github-cli`; never MCP write forms), then `start`. |
-| **1. Start**      | `./scripts/flow.sh start <issue_no> [slug]`        | Syncs default branch, sets Project board status to **In Progress**, and creates `feature/<slug>` branch.                                                                                                                         |
+| **1. Start**      | `./scripts/flow.sh start <issue_no> [slug]`        | Syncs default branch and creates `feature/<slug>` branch.                                                                                                                                                                        |
 | **1b. Implement** | _(no `flow` command — agent/human edits the code)_ | **Required gap between `start` and `check`.** Implement the issue on the feature branch (code, tests, docs). `flow` does not automate this; jumping straight to `check` after `start` is wrong.                                  |
-| **2. Check**      | `./scripts/flow.sh check`                          | Runs project verification gates (typecheck, tests, build) and shows git status. Only after implementation is done.                                                                                                               |
+| **2. Check**      | `./scripts/flow.sh check`                          | Runs verification gates (typecheck, tests, build) and shows git status. Only after implementation is done.                                                                                                                       |
 | **3. PR**         | `./scripts/flow.sh pr <issue_no> [title] [body]`   | Commits changes, pushes branch, opens PR, and links PR to issue via GraphQL.                                                                                                                                                     |
 | **Link**          | `./scripts/flow.sh link <issue_no> <pr_no>`        | Standalone command to link any PR to an issue via GraphQL.                                                                                                                                                                       |
-| **4. Ship**       | `./scripts/flow.sh ship [pr_no]`                   | Squash-merges PR, deletes remote branch, syncs local default branch, marks board item **Done**, and triggers deployment webhook.                                                                                                 |
-| **Deploy**        | `./scripts/flow.sh deploy`                         | Standalone trigger for the deployment webhook (`POST`).                                                                                                                                                                          |
-| **Status**        | `./scripts/flow.sh status`                         | Displays active branch, associated PR, and project board link.                                                                                                                                                                   |
+| **4. Ship**       | `./scripts/flow.sh ship [pr_no]`                   | Squash-merges PR, deletes remote branch, syncs local default branch, and closes linked issues.                                                                                                                                   |
+| **Status**        | `./scripts/flow.sh status`                         | Displays active branch and associated PR.                                                                                                                                                                                        |
 
 ### Why there is no `flow implement`
 
@@ -116,23 +112,9 @@ To prevent `main` and `origin/main` history divergence when working with squash 
 ```bash
 # .flowrc
 
-# GitHub Projects v2 Integration (Optional)
-PROJECT_NUM="5"
-PROJECT_OWNER="cemcakirlar"
-STATUS_FIELD_NAME="Status"
-STATUS_IN_PROGRESS_NAME="In Progress"
-STATUS_DONE_NAME="Done"
-
 # Quality Verification Gate (Optional)
 # If omitted, flow.sh auto-detects from package.json, Makefile, or Cargo.toml
 CHECK_CMD="pnpm -r --parallel run typecheck && pnpm build"
-
-# Deployment Webhook (Optional)
-# Triggered via POST on `ship` and `deploy`
-if [[ -n "${REPO_ROOT:-}" && -f "$REPO_ROOT/.secrets" ]]; then
-  source "$REPO_ROOT/.secrets"
-fi
-DEPLOY_HOOK_URL="${DEPLOY_HOOK_URL:-https://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/YOUR_DEPLOY_HOOK_UUID}"
 
 # Branching Conventions (Optional)
 DEFAULT_BRANCH="main"
@@ -146,15 +128,12 @@ See `references/flowrc.example` for a complete template.
 ## Adopting in a New Repository
 
 1. **Install or vendor the skill**: Ensure `github-flow` exists in your `.agents/skills/` directory.
-2. **Add an alias (optional but recommended)**:
-   In `package.json`:
-   ```json
-   "scripts": {
-     "flow": "bash .agents/skills/github-flow/scripts/flow.sh"
-   }
+2. **Init once**:
+   ```bash
+   bash .agents/skills/github-flow/scripts/flow.sh init
    ```
-   Or execute directly: `bash .agents/skills/github-flow/scripts/flow.sh <command>`.
-3. **Configure (optional)**: Create `.flowrc` if using GitHub Projects v2 boards or deploy hooks.
+   This adds `scripts.flow` to `package.json` and creates `.flowrc` (leaves an existing `.flowrc` alone).
+3. **Tune `.flowrc` (optional)**: Set `CHECK_CMD` / branching after init.
 4. **Document in `AGENTS.md`**:
 
    ```markdown

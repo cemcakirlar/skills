@@ -2,41 +2,11 @@
 # Place this file in your repository root to customize workflow defaults.
 
 # -----------------------------------------------------------------------------
-# GitHub Projects v2 Integration (Optional)
-# -----------------------------------------------------------------------------
-# PROJECT_NUM: Numeric ID of the GitHub Project board (e.g. 5)
-# PROJECT_OWNER: Owner of the project (@me, your user handle, or org name)
-PROJECT_NUM="5"
-PROJECT_OWNER="cemcakirlar"
-
-# Status field and option labels (case-sensitive as defined on your board)
-STATUS_FIELD_NAME="Status"
-STATUS_TODO_NAME="Todo"
-STATUS_IN_PROGRESS_NAME="In Progress"
-STATUS_DONE_NAME="Done"
-
-# -----------------------------------------------------------------------------
 # Quality Gates & Verification (Optional)
 # -----------------------------------------------------------------------------
 # CHECK_CMD: Command to run during `./flow.sh check`.
 # If unset, flow.sh auto-detects from package.json, Makefile, or Cargo.toml.
 CHECK_CMD="pnpm -r --parallel run typecheck && pnpm build"
-
-# -----------------------------------------------------------------------------
-# Deployment Integration (Optional)
-# -----------------------------------------------------------------------------
-# DEPLOY_HOOK_URL: Webhook URL triggered via POST during `./flow.sh ship` or `./flow.sh deploy`.
-# Example: Cloudflare Workers build hook, Vercel deploy hook, Netlify build hook.
-# Load local secret credentials if available (gitignored)
-if [[ -n "${REPO_ROOT:-}" && -f "$REPO_ROOT/.secrets" ]]; then
-  # shellcheck source=/dev/null
-  source "$REPO_ROOT/.secrets"
-elif [[ -f "./.secrets" ]]; then
-  # shellcheck source=/dev/null
-  source "./.secrets"
-fi
-
-DEPLOY_HOOK_URL="${DEPLOY_HOOK_URL:-https://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/YOUR_DEPLOY_HOOK_UUID}"
 
 # -----------------------------------------------------------------------------
 # Branching Conventions (Optional)

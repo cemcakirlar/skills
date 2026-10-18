@@ -5,12 +5,12 @@ set -euo pipefail
 # skills-upstream — Inspect and batch-sync local skill edits to upstream repos
 # =============================================================================
 
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-BOLD='\033[1m'
-NC='\033[0m' # No Color
+GREEN=$'\033[0;32m'
+BLUE=$'\033[0;34m'
+YELLOW=$'\033[1;33m'
+RED=$'\033[0;31m'
+BOLD=$'\033[1m'
+NC=$'\033[0m' # No Color
 
 log()     { echo -e "${BLUE}==>${NC} $*" >&2; }
 success() { echo -e "${GREEN}✓${NC} $*" >&2; }

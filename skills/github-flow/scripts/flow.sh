@@ -273,7 +273,8 @@ cmd_start() {
 
   success "Ready to work on issue #$issue_no on branch '$branch_name'!"
   echo ""
-  echo "Next step: make changes and verify quality gates with:"
+  warn "Implement the issue on this branch before running check."
+  echo "Next step: write the code/tests for #$issue_no. When done, verify with:"
   echo -e "  ${GREEN}$(resolve_flow_cmd) check${NC}"
 }
 
@@ -594,6 +595,9 @@ Commands:
   deploy                     Trigger deployment hook manually via POST
   status                     Display repository, branch, active PR, and project board status
   help                       Show this help message
+
+Lifecycle note:
+  After start, implement the issue on the feature branch (no flow subcommand), then check → pr → ship.
 
 Configuration (.flowrc):
   Place a .flowrc in your repository root to configure Project number, Status fields,

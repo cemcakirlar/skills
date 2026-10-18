@@ -80,12 +80,20 @@ git push --force-with-lease          # only if this session rebased a branch it 
 
 ## Issues
 
+Create and mutate issues with `gh` only — never GitHub MCP write tools that open approval forms.
+
 ```bash
 gh issue list --repo OWNER/REPO --state open
 gh issue list --assignee @me --label bug
 gh issue view 12
 gh issue view 12 --comments
 gh issue create --title "..." --body "..." --label bug --assignee @me
+# multi-line body (preferred in agents):
+gh issue create --title "..." --body "$(cat <<'EOF'
+## Summary
+...
+EOF
+)"
 gh issue comment 12 --body "..."
 gh issue close 12 --reason completed
 gh issue reopen 12

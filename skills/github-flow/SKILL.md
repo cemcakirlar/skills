@@ -29,7 +29,7 @@ flowchart LR
 | Step              | Command / action                                   | What It Does                                                                                                                                                                                                                     |
 | ----------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Init**          | `./scripts/flow.sh init`                           | One-time repo setup: adds `scripts.flow` to `package.json` and creates `.flowrc` from the example (skips either if already present).                                                                                             |
-| **0. Next**       | `./scripts/flow.sh next [--start]`                 | Lists open backlog issues, displays next candidate in queue, and optionally starts work. If backlog is empty and work needs an issue, create one with `gh issue create` (see `github-cli`; never MCP write forms), then `start`. |
+| **0. Next**       | `./scripts/flow.sh next [--start]`                 | Lists open backlog issues ordered sequentially after the last closed issue, displays next candidate in queue, and optionally starts work. If backlog is empty and work needs an issue, create one with `gh issue create` (with 1 or more required labels, e.g. `--label "enhancement,area:web"`; see `github-cli`; never MCP write forms), then `start`. |
 | **1. Start**      | `./scripts/flow.sh start <issue_no> [slug]`        | Syncs default branch and creates `feature/<slug>` branch.                                                                                                                                                                        |
 | **1b. Implement** | _(no `flow` command — agent/human edits the code)_ | **Required gap between `start` and `check`.** Implement the issue on the feature branch (code, tests, docs). `flow` does not automate this; jumping straight to `check` after `start` is wrong.                                  |
 | **2. Check**      | `./scripts/flow.sh check`                          | Runs verification gates (typecheck, tests, build) and shows git status. Only after implementation is done.                                                                                                                       |
@@ -41,6 +41,14 @@ flowchart LR
 ### Why there is no `flow implement`
 
 Implementation is the product work itself (edit files, run the app, write tests). A CLI wrapper cannot usefully “do” that. The lifecycle still treats it as an explicit step so agents never treat `start → check` as adjacent commands.
+
+### Queue Ordering & Next Candidate Selection
+
+`flow.sh next` orders the open backlog and selects the next candidate deterministically:
+1. **Reference Point**: Detects the last closed issue number ($N$) as the milestone progress watermark.
+2. **Forward Queue**: Open issues with number $> N$ appear first, sorted in ascending order (earliest in sequence first).
+3. **Prior / Deferred Issues**: Open issues with number $\le N$ (such as older backlog notes) appear at the end of the queue.
+4. **Next Selection**: The candidate selected as next is always the first issue in this sorted queue (the first open issue numbered after the last closed issue).
 
 ---
 

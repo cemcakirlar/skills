@@ -81,15 +81,16 @@ git push --force-with-lease          # only if this session rebased a branch it 
 ## Issues
 
 Create and mutate issues with `gh` only — never GitHub MCP write tools that open approval forms.
+**Every issue MUST be created with 1 or more labels** (e.g. `--label "enhancement,area:web"` or `--label "bug,area:core"`).
 
 ```bash
 gh issue list --repo OWNER/REPO --state open
 gh issue list --assignee @me --label bug
 gh issue view 12
 gh issue view 12 --comments
-gh issue create --title "..." --body "..." --label bug --assignee @me
-# multi-line body (preferred in agents):
-gh issue create --title "..." --body "$(cat <<'EOF'
+gh issue create --title "..." --body "..." --label "enhancement,area:web" --assignee @me
+# multi-line body (preferred in agents, always include 1 or more labels):
+gh issue create --title "..." --label "enhancement,area:web" --body "$(cat <<'EOF'
 ## Summary
 ...
 EOF

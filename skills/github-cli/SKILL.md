@@ -88,6 +88,7 @@ If `gh` is missing, say so and stop or fall back to `git` plus `gh api`/`curl`. 
 8. **Commit messages explain why.** Subject under 72 chars; body when the change is non-obvious.
 9. **Match existing repo conventions** (branch names, commit style, merge method). Infer from `git log` and recent PRs before inventing a new style.
 10. **Protected-branch rejection is the safety model working.** Open a PR instead of fighting rulesets.
+11. **Issues MUST have 1 or more labels.** When creating an issue (`gh issue create`), always provide at least one relevant label with `--label` (e.g. `--label "enhancement,area:web"` or `--label "bug,area:core"`). Never create an unlabeled issue.
 
 Destructive git (`reset --hard`, `clean -fdx`, `push --force`, `branch -D`) requires an explicit user request or a branch that this session created and nobody else uses.
 

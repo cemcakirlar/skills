@@ -474,30 +474,63 @@ cmd_next() {
   local auto_start="${1:-}"
 
   log "Fetching open issues for ${REPO_OWNER}/${REPO_NAME}..."
-  local issues_json
-  issues_json=$(gh issue list --state open --limit 20 --json number,title,labels 2>/dev/null || true)
+  local raw_open_issues
+  raw_open_issues=$(gh issue list --state open --limit 100 --json number,title,labels 2>/dev/null || true)
 
-  if [[ -z "$issues_json" || "$issues_json" == "[]" ]]; then
+  if [[ -z "$raw_open_issues" || "$raw_open_issues" == "[]" ]]; then
+    if ! gh auth status >/dev/null 2>&1; then
+      error "GitHub CLI authentication or network failure. Run 'gh auth status' to verify."
+    fi
     success "No open issues found in ${REPO_OWNER}/${REPO_NAME}! Backlog is clean."
     return 0
   fi
 
+  # Determine reference closed issue (last closed issue / progress watermark)
+  local last_closed_no=0
+  local raw_closed_issues
+  raw_closed_issues=$(gh issue list --state closed --limit 50 --json number,closedAt,stateReason 2>/dev/null || echo "[]")
+  if [[ -n "$raw_closed_issues" && "$raw_closed_issues" != "[]" ]]; then
+    last_closed_no=$(echo "$raw_closed_issues" | jq -r '
+      [ .[] | select(.closedAt != null and .stateReason != "NOT_PLANNED") ] |
+      if length == 0 then 0
+      else
+        (sort_by(.closedAt) | last | .number // 0) as $latest_closed |
+        ([ .[].number ] | max // 0) as $max_closed |
+        if $max_closed > $latest_closed then $max_closed else $latest_closed end
+      end
+    ' 2>/dev/null || echo "0")
+  fi
+
+  # Sort open issues:
+  # 1. Issues with number > last_closed_no, sorted ascending by number
+  # 2. Remaining issues (number <= last_closed_no), sorted ascending by number
+  local sorted_issues
+  sorted_issues=$(echo "$raw_open_issues" | jq --argjson last "$last_closed_no" '
+    ([ .[] | select(.number > $last) ] | sort_by(.number)) as $after |
+    ([ .[] | select(.number <= $last) ] | sort_by(.number)) as $before |
+    $after + $before
+  ')
+
   local count
-  count=$(echo "$issues_json" | jq '. | length' 2>/dev/null || echo "0")
+  count=$(echo "$sorted_issues" | jq '. | length' 2>/dev/null || echo "0")
+
+  if [[ "$last_closed_no" -gt 0 ]]; then
+    log "Last closed issue: #$last_closed_no"
+  fi
 
   log "Found $count open issue(s):"
   echo ""
   printf "  ${BLUE}%-7s${NC} %s\n" "ISSUE" "TITLE"
   printf "  %-7s %s\n" "-------" "------------------------------------------------------------"
 
-  echo "$issues_json" | jq -r '.[] | "\(.number)\t\(.title)"' | while IFS=$'\t' read -r num title; do
+  echo "$sorted_issues" | jq -r '.[] | "\(.number)\t\(.title)"' | while IFS=$'\t' read -r num title; do
     printf "  #%-6s %s\n" "$num" "$title"
   done
   echo ""
 
   local next_issue_no next_issue_title
-  next_issue_no=$(echo "$issues_json" | jq -r '.[0].number')
-  next_issue_title=$(echo "$issues_json" | jq -r '.[0].title')
+  next_issue_no=$(echo "$sorted_issues" | jq -r '.[0].number')
+  next_issue_title=$(echo "$sorted_issues" | jq -r '.[0].title')
 
   log "Next issue in queue: #${next_issue_no} - ${next_issue_title}"
 

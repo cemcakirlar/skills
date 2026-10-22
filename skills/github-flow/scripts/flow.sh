@@ -229,8 +229,8 @@ cmd_start() {
   log "Syncing with origin/$DEFAULT_BRANCH..."
   git switch "$DEFAULT_BRANCH"
 
-  # Fetch latest remote state
-  git fetch origin "$DEFAULT_BRANCH" > /dev/null 2>&1 || true
+  # Fetch latest remote state; prune stale origin/* tracking refs (e.g. deleted feature branches)
+  git fetch --prune origin > /dev/null 2>&1 || true
 
   # Check if local DEFAULT_BRANCH has unpushed commits ahead of origin
   local ahead_count
@@ -435,7 +435,8 @@ cmd_ship() {
 
   log "Syncing local $DEFAULT_BRANCH..."
   git switch "$DEFAULT_BRANCH"
-  git fetch origin "$DEFAULT_BRANCH"
+  # Prune after --delete-branch so IDE remotes don't keep ghost origin/feature/*
+  git fetch --prune origin
   if ! git pull --ff-only 2>/dev/null; then
     warn "Could not fast-forward local $DEFAULT_BRANCH to origin/$DEFAULT_BRANCH (diverged history, common after squash-merge)."
     if [[ -z $(git status --porcelain) ]]; then

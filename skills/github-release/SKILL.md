@@ -3,13 +3,28 @@ name: github-release
 description: Automate semantic versioning, conventional commits changelog generation, git tagging, and GitHub Release publication. Works across Node.js, Python, Rust, Xcode, and generic git repositories. Triggers on release, semver, bump version, patch release, minor release, major release, cut release, changelog, and github release.
 metadata:
   type: workflow
-  version: "1.0"
+  version: "1.1"
   stack: git+gh
 ---
 
 # GitHub Release (`github-release`)
 
-Automate the full software release lifecycle through a unified, stack-agnostic CLI script (`scripts/release.sh`), Conventional Commits parsing, Keep a Changelog generation, git tagging, and GitHub Release publishing (`gh release create`).
+Automate SemVer bumps, Conventional Commits changelog updates, git tagging, and pushing tags through a stack-agnostic CLI (`scripts/release.sh`). Publishing a GitHub Release (`gh release create`) is **opt-in only** — see hard rule below.
+
+---
+
+## Hard rule — no GitHub Release by default (MANDATORY)
+
+**Standard release** = version bump + `CHANGELOG.md` + annotated git tag + push tag/branch.
+
+**Forbidden by default:**
+
+- `pnpm release … --github-release` / `--gh-release`
+- `gh release create` / `gh release edit` / uploading release assets
+
+Agents **MUST NOT** create a GitHub Release unless the user **explicitly** asks in that turn (e.g. “GitHub Release da oluştur”, “publish a GitHub Release”, “`--github-release` kullan”). Vague “release” / “bump” / “tag” requests mean **tag-only**.
+
+If unsure, run tag-only and ask — do not pass `--github-release`.
 
 ---
 
@@ -23,29 +38,29 @@ flowchart LR
     D --> E["Update Project Manifest"]
     E --> F["Git Commit & Tag (vX.Y.Z)"]
     F --> G["Push Tag & Branch"]
-    G -. "Optional (--github-release)" .-> H["gh release create"]
+    G -. "ONLY if user explicitly asks" .-> H["gh release create"]
 ```
 
 ---
 
 ## 2. Command Reference
 
-| Command / Option | What It Does |
-| :--- | :--- |
-| `release` (no args) | Displays help menu and exits without performing any actions. |
-| `release init` | Initializes repository with `.releaserc`, starter `CHANGELOG.md`, and verifies permissions. |
-| `release patch` | Bumps patch version (e.g. `0.1.0` ➔ `0.1.1`), updates changelog, commits, and pushes tag. |
-| `release minor` | Bumps minor version (e.g. `0.1.0` ➔ `0.2.0`). |
-| `release major` | Bumps major version (e.g. `0.1.0` ➔ `1.0.0`). |
-| `release <X.Y.Z>` | Releases an explicit SemVer version (e.g. `1.2.0` or `1.0.0-rc.1`). |
-| `--github-release`, `--gh-release` | Explicitly publishes a GitHub Release via `gh` CLI. By default, only the Git tag is pushed. |
-| `--dry-run` | Simulates all steps without touching files, git history, or remotes. Works with both `init` and releases. |
-| `--no-push` | Updates files, creates git commit and tag locally, but does not push to remote or create GitHub release. |
-| `--notes-only` | Only parses commits since the last tag and outputs the markdown changelog notes to stdout. |
-| `--skip-check` | Skips configured pre-release quality checks. |
-| `--skip-build` | Skips configured build/packaging commands. |
-| `--allow-dirty` | Allows running even if git working tree has uncommitted changes (useful for testing/dry-runs). |
-| `--tag-prefix <pfx>` | Customizes tag prefix (default: `v`, e.g. `v1.0.0`). |
+| Command / Option                   | What It Does                                                                                                                            |
+| :--------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------- |
+| `release` (no args)                | Displays help menu and exits without performing any actions.                                                                            |
+| `release init`                     | Initializes repository with `.releaserc`, starter `CHANGELOG.md`, and verifies permissions.                                             |
+| `release patch`                    | Bumps patch version (e.g. `0.1.0` ➔ `0.1.1`), updates changelog, commits, and pushes tag.                                               |
+| `release minor`                    | Bumps minor version (e.g. `0.1.0` ➔ `0.2.0`).                                                                                           |
+| `release major`                    | Bumps major version (e.g. `0.1.0` ➔ `1.0.0`).                                                                                           |
+| `release <X.Y.Z>`                  | Releases an explicit SemVer version (e.g. `1.2.0` or `1.0.0-rc.1`).                                                                     |
+| `--github-release`, `--gh-release` | **Opt-in only.** Publishes a GitHub Release via `gh`. Never use unless the user explicitly requested it. Default path is tag push only. |
+| `--dry-run`                        | Simulates all steps without touching files, git history, or remotes. Works with both `init` and releases.                               |
+| `--no-push`                        | Updates files, creates git commit and tag locally, but does not push to remote or create GitHub release.                                |
+| `--notes-only`                     | Only parses commits since the last tag and outputs the markdown changelog notes to stdout.                                              |
+| `--skip-check`                     | Skips configured pre-release quality checks.                                                                                            |
+| `--skip-build`                     | Skips configured build/packaging commands.                                                                                              |
+| `--allow-dirty`                    | Allows running even if git working tree has uncommitted changes (useful for testing/dry-runs).                                          |
+| `--tag-prefix <pfx>`               | Customizes tag prefix (default: `v`, e.g. `v1.0.0`).                                                                                    |
 
 ---
 
@@ -55,20 +70,22 @@ To keep engineering velocity high and workflows deterministic, agents should rec
 
 ### Workflow Transition
 
-| Current State / Trigger | Recommended Action |
-| :--- | :--- |
-| First-time repository adoption / bootstrap | `pnpm release init --dry-run` (then `pnpm release init`) |
-| Pull request merged to `main` via `github-flow` (`flow ship`) | `pnpm release patch --dry-run` (or `pnpm release patch`) |
-| Preparing a new feature release | `pnpm release minor` |
-| Preparing a breaking API change | `pnpm release major` |
-| Inspecting unreleased changes | `pnpm release --notes-only` |
+| Current State / Trigger                                       | Recommended Action                                                                   |
+| :------------------------------------------------------------ | :----------------------------------------------------------------------------------- |
+| First-time repository adoption / bootstrap                    | `pnpm release init --dry-run` (then `pnpm release init`)                             |
+| Pull request merged to `main` via `github-flow` (`flow ship`) | `pnpm release patch --dry-run` (or `pnpm release patch`) — **no** `--github-release` |
+| Preparing a new feature release                               | `pnpm release minor` — **no** `--github-release`                                     |
+| Preparing a breaking API change                               | `pnpm release major` — **no** `--github-release`                                     |
+| Inspecting unreleased changes                                 | `pnpm release --notes-only`                                                          |
+| User **explicitly** asks for a GitHub Release                 | Only then: `pnpm release patch --github-release` (or matching bump)                  |
 
 ### AI Agent Reporting Requirement
 
-Whenever an AI agent completes a release simulation or executes a release, **it MUST output the next command or verification link immediately below its summary report**:
+Whenever an AI agent completes a release simulation or executes a release, **it MUST output the next command or verification link immediately below its summary report**. Default next step is **tag-only** (never suggest `--github-release` unless the user already asked for a GitHub Release):
 
 ````markdown
 ### Sonraki Adım / Next Step
+
 ```bash
 pnpm release patch
 ```
@@ -150,12 +167,14 @@ If configuring manually or customizing before bootstrapping:
      ```
 
 3. **Ensure Script Permissions**:
+
    ```bash
    chmod +x .agents/skills/github-release/scripts/release.sh
    ```
 
 4. **Create Configuration (`.releaserc`)**:
    Define verification gates and build commands tailored to your stack:
+
    ```bash
    # .releaserc
    CHECK_CMD="pnpm flow check"     # Pre-release validation (typecheck, test, build)
@@ -166,6 +185,7 @@ If configuring manually or customizing before bootstrapping:
 
 5. **Initialize `CHANGELOG.md`**:
    Create a root [CHANGELOG.md](file://CHANGELOG.md) following Keep a Changelog:
+
    ```markdown
    # Changelog
 
@@ -177,12 +197,15 @@ If configuring manually or customizing before bootstrapping:
    ## [Unreleased]
 
    ## [0.1.0] - 2026-10-01
+
    ### Added
+
    - Initial project release and automated release configuration.
    ```
 
 6. **Clean Working Tree & Initial Commit**:
    Because `release.sh` enforces a clean git working tree, commit the newly added skill and release files to `main`:
+
    ```bash
    git add .agents/skills/github-release .releaserc CHANGELOG.md package.json AGENTS.md
    git commit -m "feat(release): configure github-release automation and changelog"
@@ -190,6 +213,7 @@ If configuring manually or customizing before bootstrapping:
 
 7. **Verify GitHub CLI & Permissions**:
    Confirm GitHub CLI is authenticated and has permission to push tags and create releases:
+
    ```bash
    gh auth status
    ```

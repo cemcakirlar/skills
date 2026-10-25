@@ -15,4 +15,4 @@ CHECK_CMD="pnpm -r --parallel run typecheck && pnpm build"
 # DEFAULT_BRANCH="main"
 
 # BRANCH_PREFIX: Prefix for newly created feature branches (default: feature/)
-# BRANCH_PREFIX="feature/"
+# BRANCH_PREFIX="feat/"

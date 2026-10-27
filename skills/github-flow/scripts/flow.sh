@@ -57,10 +57,19 @@ if [[ -z "$REPO_OWNER" || -z "$REPO_NAME" ]]; then
   fi
 fi
 
-# Fallback default branch detection
+# Fallback default branch detection.
+# NOTE: `cmd | sed ... || echo main` does NOT fall back — sed exits 0 with empty
+# output when the ref is missing, so the || branch never runs. Capture and test.
 if [[ -z "$DEFAULT_BRANCH" ]]; then
-  DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
+  _symbolic_head=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || true)
+  DEFAULT_BRANCH="$_symbolic_head"
 fi
+if [[ -z "$DEFAULT_BRANCH" ]]; then
+  # Last resort: the branch HEAD currently points at, else literal "main".
+  _current=$(git branch --show-current 2>/dev/null || true)
+  DEFAULT_BRANCH="${_current:-main}"
+fi
+unset _symbolic_head _current 2>/dev/null || true
 
 # Workflow defaults
 BRANCH_PREFIX="${BRANCH_PREFIX:-feature/}"
@@ -154,6 +163,93 @@ flow_skill_dir() {
   local abs
   abs=$(flow_script_abs)
   dirname "$(dirname "$abs")"
+}
+
+# "Deletable" is decided by content, not ancestry. Squash merges rewrite commits,
+# so a merged branch is never an ancestor of the default branch and
+# `git branch --merged` reports nothing.
+#
+# Two independent signals make a branch deletable:
+#   1. A merged PR exists for it (authoritative, straight from GitHub).
+#   2. It carries no net change: merging it into the default branch is a no-op.
+#      This catches duplicates whose PR was merged under a different branch
+#      (e.g. #214 vs #215) and branches that never had a PR at all.
+MERGE_TREE_OK="false"
+if git merge-tree --write-tree HEAD HEAD > /dev/null 2>&1; then
+  MERGE_TREE_OK="true"
+fi
+
+# True when merging the given revision into the default branch changes nothing.
+# Callers pass a name git can resolve unambiguously (local branch, or "origin/x").
+branch_is_redundant() {
+  local rev="$1"
+  local merged_tree main_tree
+
+  if [[ "$MERGE_TREE_OK" == "true" ]]; then
+    merged_tree=$(git merge-tree --write-tree "$DEFAULT_BRANCH" "$rev" 2>/dev/null | head -n1 || true)
+    main_tree=$(git rev-parse "$DEFAULT_BRANCH^{tree}" 2>/dev/null || true)
+    # Only trust merge-tree when it actually produced a tree for a resolvable rev.
+    if [[ -n "$merged_tree" && -n "$main_tree" ]]; then
+      [[ "$merged_tree" == "$main_tree" ]]
+      return
+    fi
+  fi
+
+  # Fallback for git < 2.38 or unresolvable revs: patch-equivalence check.
+  # No '+' lines means every commit's patch already landed upstream.
+  if git cherry "$DEFAULT_BRANCH" "$rev" 2>/dev/null | grep -q '^+'; then
+    return 1
+  fi
+  return 0
+}
+
+# Returns the PR number whose head ref matches the branch, or empty.
+open_pr_number_for() {
+  local branch="$1" open_prs="$2"
+  [[ -z "$open_prs" ]] && return 0
+  printf '%s\n' "$open_prs" | awk -F'\t' -v b="$branch" '$1 == b { print $2; exit }'
+}
+
+# Prints one of:
+#   deletable | default branch | currently checked out | open PR | no PR
+# Names that must never be deleted, even if every other signal says "deletable".
+# Content checks call a default branch "redundant" by definition (merging main
+# into main changes nothing), so this name guard is the ONLY thing protecting it.
+is_protected_branch_name() {
+  local branch="$1"
+  [[ -z "$branch" ]] && return 0
+  [[ "$branch" == "HEAD" ]] && return 0
+  [[ "$branch" == "main" || "$branch" == "master" ]] && return 0
+  [[ -n "$DEFAULT_BRANCH" && "$branch" == "$DEFAULT_BRANCH" ]] && return 0
+  # Refuse anything that could be mistaken for a remote-tracking ref or option.
+  [[ "$branch" == -* || "$branch" == *".."* ]] && return 0
+  return 1
+}
+
+branch_cleanup_verdict() {
+  local branch="$1" merged_refs="$2" open_refs="$3" current_branch="$4" rev="${5:-$1}"
+
+  if is_protected_branch_name "$branch"; then
+    echo "default branch"
+    return 0
+  fi
+  if [[ -n "$current_branch" && "$branch" == "$current_branch" ]]; then
+    echo "currently checked out"
+    return 0
+  fi
+  if [[ -n "$merged_refs" ]] && printf '%s\n' "$merged_refs" | grep -qxF -- "$branch"; then
+    echo "deletable"
+    return 0
+  fi
+  if branch_is_redundant "$rev"; then
+    echo "deletable"
+    return 0
+  fi
+  if [[ -n "$open_refs" ]] && printf '%s\n' "$open_refs" | grep -qxF -- "$branch"; then
+    echo "open PR"
+    return 0
+  fi
+  echo "no PR"
 }
 
 # -----------------------------------------------------------------------------
@@ -453,6 +549,13 @@ cmd_ship() {
     git branch -D "$head_ref" > /dev/null 2>&1 || true
   fi
 
+  # Sweep every merged branch this PR's merge made deletable (remote + local).
+  # Without this, branches merged outside `ship` (GitHub UI, another session)
+  # keep their remote branch forever because the early-merge path above skips
+  # `--delete-branch`.
+  log "Sweeping merged branches..."
+  cmd_cleanup
+
   # Ensure linked issues are closed on GitHub
   if [[ -n "$linked_issues" ]]; then
     for issue_no in $linked_issues; do
@@ -561,6 +664,122 @@ cmd_status() {
   fi
 }
 
+cmd_cleanup() {
+  local dry_run="${1:-}"
+  local apply="true"
+  if [[ "$dry_run" == "--dry-run" || "$dry_run" == "-n" ]]; then
+    apply="false"
+  fi
+
+  # --- Preflight: refuse to run with an unusable default branch -------------
+  # If DEFAULT_BRANCH is empty or does not resolve to a real branch, the name
+  # guard cannot protect it and every branch looks deletable. Abort instead.
+  if [[ -z "$DEFAULT_BRANCH" ]]; then
+    error "DEFAULT_BRANCH is empty — refusing to delete anything. Set DEFAULT_BRANCH in .flowrc or run 'git remote set-head origin -a'."
+  fi
+  if ! git rev-parse --verify --quiet "refs/heads/$DEFAULT_BRANCH" > /dev/null; then
+    error "Default branch '$DEFAULT_BRANCH' does not exist locally — refusing to delete anything."
+  fi
+
+  local current_branch
+  current_branch=$(git branch --show-current 2>/dev/null || true)
+  if [[ -z "$current_branch" ]]; then
+    warn "Detached HEAD. Switching to '$DEFAULT_BRANCH' first (its branch is never deleted)."
+    git switch "$DEFAULT_BRANCH" > /dev/null 2>&1 || error "Could not switch to '$DEFAULT_BRANCH'. Commit or stash changes first."
+    current_branch="$DEFAULT_BRANCH"
+  elif [[ "$current_branch" != "$DEFAULT_BRANCH" ]]; then
+    warn "Currently on '$current_branch'. Switching to '$DEFAULT_BRANCH' first (its branch is never deleted)."
+    git switch "$DEFAULT_BRANCH" > /dev/null 2>&1 || error "Could not switch to '$DEFAULT_BRANCH'. Commit or stash changes first."
+    current_branch="$DEFAULT_BRANCH"
+  fi
+
+  log "Fetching merged/open PR branch names from GitHub..."
+  local merged_refs open_refs open_prs
+  merged_refs=$(gh pr list --state merged --limit 200 --json headRefName --jq '.[].headRefName' 2>/dev/null) || error "Could not list merged PRs. Run 'gh auth status' to verify."
+  open_prs=$(gh pr list --state open --limit 200 --json headRefName,number --jq '.[] | "\(.headRefName)\t\(.number)"' 2>/dev/null || true)
+  open_refs=$(printf '%s\n' "$open_prs" | awk -F'\t' 'NF { print $1 }')
+
+  log "Pruning stale remote tracking refs..."
+  git fetch --prune origin > /dev/null 2>&1 || true
+
+  # Remote branches: merged PRs, plus branches whose merge would be a no-op.
+  local remote_deleted=0 remote_kept=0
+  local remote_branch verdict pr_no
+  while IFS= read -r remote_branch; do
+    [[ -z "$remote_branch" || "$remote_branch" == "HEAD" ]] && continue
+    verdict=$(branch_cleanup_verdict "$remote_branch" "$merged_refs" "$open_refs" "" "origin/$remote_branch")
+    # Belt-and-braces: never let a protected name reach a delete call.
+    if is_protected_branch_name "$remote_branch"; then
+      verdict="default branch"
+    fi
+    case "$verdict" in
+      deletable)
+        # A redundant branch may still have an open PR pointing at it. Deleting
+        # the branch would close that PR without explanation, so close it first.
+        pr_no=$(open_pr_number_for "$remote_branch" "$open_prs")
+        if [[ -n "$pr_no" ]]; then
+          if [[ "$apply" == "true" ]]; then
+            gh pr close "$pr_no" --delete-branch \
+              --comment "Closing as redundant: this branch carries no net change over \`$DEFAULT_BRANCH\` (its content already landed via another merged PR). Deleted by \`flow cleanup\`." > /dev/null 2>&1 \
+              && success "Closed redundant PR #$pr_no and deleted origin/$remote_branch" \
+              || { warn "Could not close redundant PR #$pr_no"; remote_kept=$((remote_kept + 1)); continue; }
+          else
+            echo "  would close redundant PR #$pr_no and delete remote: origin/$remote_branch"
+          fi
+        elif [[ "$apply" == "true" ]]; then
+          git push origin --delete "$remote_branch" > /dev/null 2>&1 \
+            && success "Deleted remote branch: origin/$remote_branch" \
+            || { warn "Could not delete remote branch: origin/$remote_branch"; remote_kept=$((remote_kept + 1)); continue; }
+        else
+          echo "  would delete remote: origin/$remote_branch"
+        fi
+        remote_deleted=$((remote_deleted + 1))
+        ;;
+      *)
+        echo "  kept remote: origin/$remote_branch ($verdict)"
+        remote_kept=$((remote_kept + 1))
+        ;;
+    esac
+  done < <(git for-each-ref --format='%(refname:strip=3)' refs/remotes/origin/)
+
+  # Local branches: same authority, plus skip the branch we are standing on.
+  local local_deleted=0 local_kept=0
+  local local_branch
+  while IFS= read -r local_branch; do
+    [[ -z "$local_branch" ]] && continue
+    verdict=$(branch_cleanup_verdict "$local_branch" "$merged_refs" "$open_refs" "$current_branch")
+    if is_protected_branch_name "$local_branch"; then
+      verdict="default branch"
+    fi
+    case "$verdict" in
+      deletable)
+        if [[ "$apply" == "true" ]]; then
+          git branch -D "$local_branch" > /dev/null 2>&1 \
+            && { success "Deleted local branch: $local_branch"; local_deleted=$((local_deleted + 1)); } \
+            || { warn "Could not delete local branch: $local_branch"; local_kept=$((local_kept + 1)); }
+        else
+          echo "  would delete local: $local_branch"
+          local_deleted=$((local_deleted + 1))
+        fi
+        ;;
+      *)
+        echo "  kept local: $local_branch ($verdict)"
+        local_kept=$((local_kept + 1))
+        ;;
+    esac
+  done < <(git for-each-ref --format='%(refname:short)' refs/heads/)
+
+  git fetch --prune origin > /dev/null 2>&1 || true
+
+  echo ""
+  if [[ "$apply" == "true" ]]; then
+    success "Cleanup done — remote deleted: $remote_deleted, kept: $remote_kept; local deleted: $local_deleted, kept: $local_kept."
+  else
+    warn "Dry run — remote deletable: $remote_deleted, kept: $remote_kept; local deletable: $local_deleted, kept: $local_kept."
+    echo "Re-run without --dry-run to apply."
+  fi
+}
+
 cmd_help() {
   cat <<EOF
 ${BOLD}github-flow CLI (scripts/flow.sh)${NC}
@@ -577,7 +796,10 @@ ${BOLD}Commands:${NC}
   check                      Run quality gate (auto-detected or configured in .flowrc)
   pr <issue_no> [title]      Commit, push, create PR and link PR to issue
   link <issue_no> <pr_no>    Explicitly link a PR to an issue via GraphQL mutation
-  ship [pr_no]               Squash-merge PR, sync default branch, close linked issues
+  ship [pr_no]               Squash-merge PR, sync default branch, close linked issues, sweep merged branches
+  cleanup [--dry-run]        Delete every deletable branch locally and on origin
+                             (deletable = merged PR, or merging changes nothing;
+                              redundant open PRs are closed first)
   status                     Display repository, branch, and active PR
   help, -h, --help           Show this help message
 
@@ -613,6 +835,7 @@ main() {
     link)   cmd_link "$@" ;;
     pr)     cmd_pr "$@" ;;
     ship)   cmd_ship "$@" ;;
+    cleanup) cmd_cleanup "$@" ;;
     status) cmd_status "$@" ;;
     help|-h|--help) cmd_help ;;
     *) error "Unknown command '$cmd'. Run '$0 help' for available commands." ;;

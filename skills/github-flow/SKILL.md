@@ -43,6 +43,21 @@ flowchart LR
 
 Implementation is the product work itself (edit files, run the app, write tests). A CLI wrapper cannot usefully “do” that. The lifecycle still treats it as an explicit step so agents never treat `start → check` as adjacent commands.
 
+### Commit & PR Titles
+
+`flow.sh pr` derives the commit subject and the PR title from the **issue title** (`custom_title` still overrides both):
+
+| Issue title                                 | Derived title                                      |
+| ------------------------------------------- | -------------------------------------------------- |
+| `fix(contracts): notes max-length …`        | `fix(contracts): notes max-length … (#276)`        |
+| `refactor(core): drop the duplicated shape` | `refactor(core): drop the duplicated shape (#281)` |
+| `Add widget` (no conventional type)         | `feat: add widget (#300)`                          |
+
+Rules:
+
+- A title that already starts with a conventional type — `feat` `fix` `refactor` `chore` `docs` `test` `perf` `build` `ci` `revert`, optionally scoped as `fix(contracts):` — keeps that prefix **verbatim**. The subject is not lowercased, because scoped subjects name identifiers (`promptId`, `Playwright`).
+- Anything else falls back to `feat: <lowercased cleaned subject>`. Cleaning strips tracker ids (`[Bug]`, `PROJ-123:`), plain or scoped conventional prefixes, and surrounding punctuation.
+
 ### Queue Ordering & Next Candidate Selection
 
 `flow.sh next` orders the open backlog and selects the next candidate deterministically:
@@ -50,7 +65,25 @@ Implementation is the product work itself (edit files, run the app, write tests)
 1. **Reference Point**: Detects the last closed issue number ($N$) as the milestone progress watermark.
 2. **Forward Queue**: Open issues with number $> N$ appear first, sorted in ascending order (earliest in sequence first).
 3. **Prior / Deferred Issues**: Open issues with number $\le N$ (such as older backlog notes) appear at the end of the queue.
-4. **Next Selection**: The candidate selected as next is always the first issue in this sorted queue (the first open issue numbered after the last closed issue).
+4. **Blocked Issues**: An issue is **blocked** when GitHub's native "blocked by" relationship points at an issue that is still open, or when it carries the `blocked` label. Blocked issues are listed last (keeping their relative order) and are never selected as next; the reason is shown in the list (`(blocked by #278)`).
+5. **Next Selection**: The candidate is the first **unblocked** issue in this sorted queue. If every remaining issue is blocked, `next` prints the list and exits non-zero instead of picking one.
+
+### Declaring Dependencies
+
+Blocking is **native GitHub metadata**. Body text is never parsed — not as authority, not even as information — so issues stay free to quote, discuss or mis-state dependencies without affecting the queue.
+
+```bash
+gh issue edit 277 --add-blocked-by 276     # 277 is blocked by 276
+gh issue edit 276 --add-blocking 277       # inverse; GitHub keeps both sides in sync
+gh issue edit 277 --remove-blocked-by 276  # unblock
+```
+
+The same relationship is available in the issue sidebar (_Relationships_ → _Mark as blocked by_).
+
+- `next` reads `Issue.blockedBy` for every open issue in one `gh issue list` call.
+- A dependency only blocks while it is **open**; closing it unblocks its dependents automatically.
+- Use the `blocked` label for a blocker that is **not** a GitHub issue (human review, external service). Remove the label to unblock.
+- Absent `blockedBy` (a host without the feature) means "nothing is blocked". There is no text fallback, by design.
 
 ---
 

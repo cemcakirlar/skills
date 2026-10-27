@@ -85,11 +85,31 @@ slugify() {
 clean_issue_title() {
   local title="$1"
   # Strip common prefix tracker identifiers like EP-01 / 1-4 —, PROJ-123:, [Bug]
+  # and conventional commit types, scoped or not (feat:, fix(contracts):).
   echo "$title" \
     | sed -E 's/^[A-Za-z0-9_-]+[ ]*\/[ ]*[0-9]+-[0-9]+[ ]*([—–-]|:)[ ]*//' \
     | sed -E 's/^[A-Za-z0-9_-]+[ ]*([—–-]|:)[ ]*//' \
     | sed -E 's/^\[[^]]+\][ ]*//' \
-    | sed -E 's/^[A-Za-z0-9_-]+:[ ]*//'
+    | sed -E 's/^[A-Za-z0-9_-]+(\([^)]+\))?:[ ]*//'
+}
+
+# Conventional commit types recognised in issue titles (see clean_issue_title).
+CONVENTIONAL_TYPES='feat|fix|refactor|chore|docs|test|perf|build|ci|revert'
+
+# Commit / PR title for an issue.
+# An issue title that already carries a conventional prefix keeps it verbatim
+# ("fix(contracts): notes …" -> "fix(contracts): notes … (#12)"); anything else
+# falls back to "feat: <lowercased cleaned subject> (#12)".
+default_pr_title() {
+  local title="$1" issue_no="$2" prefix subject
+  if printf '%s' "$title" | grep -qE "^($CONVENTIONAL_TYPES)(\([^)]+\))?:[[:space:]]"; then
+    prefix=$(printf '%s' "$title" | sed -E "s/^($CONVENTIONAL_TYPES)(\([^)]+\))?:.*/\1\2/")
+    subject=$(printf '%s' "$title" | sed -E 's/^[^:]+:[[:space:]]*//')
+  else
+    prefix="feat"
+    subject=$(clean_issue_title "$title" | tr '[:upper:]' '[:lower:]')
+  fi
+  printf '%s: %s (#%s)' "$prefix" "$subject" "$issue_no"
 }
 
 detect_check_command() {
@@ -484,14 +504,21 @@ cmd_pr() {
   issue_json=$(gh issue view "$issue_no" --json id,title 2>/dev/null) || error "Issue #$issue_no not found."
   issue_title=$(echo "$issue_json" | jq -r .title)
 
-  local clean_title
-  clean_title=$(clean_issue_title "$issue_title")
+  local derived_title
+  derived_title=$(default_pr_title "$issue_title" "$issue_no")
 
   if [[ -n $(git status --porcelain) ]]; then
     log "Staging uncommitted changes..."
+    git status --short
+    local untracked
+    untracked=$(git ls-files --others --exclude-standard)
+    if [[ -n "$untracked" ]]; then
+      warn "Untracked files will be committed by 'git add -A':"
+      printf '%s\n' "$untracked" | sed 's/^/  /'
+    fi
     git add -A
 
-    local commit_title="${custom_title:-feat: $(echo "$clean_title" | tr '[:upper:]' '[:lower:]') (#$issue_no)}"
+    local commit_title="${custom_title:-$derived_title}"
     log "Committing changes: $commit_title"
     if [[ -n "$custom_body" ]]; then
       git commit -m "$commit_title" -m "$custom_body"
@@ -505,7 +532,7 @@ cmd_pr() {
   log "Pushing branch to origin..."
   git push -u origin HEAD
 
-  local pr_title="${custom_title:-feat: $(echo "$clean_title" | tr '[:upper:]' '[:lower:]') (#$issue_no)}"
+  local pr_title="${custom_title:-$derived_title}"
   local pr_body
   if [[ -n "$custom_body" ]]; then
     pr_body=$(cat <<EOF
@@ -631,7 +658,7 @@ cmd_next() {
 
   log "Fetching open issues for ${REPO_OWNER}/${REPO_NAME}..."
   local raw_open_issues
-  raw_open_issues=$(gh issue list --state open --limit 100 --json number,title,labels 2>/dev/null || true)
+  raw_open_issues=$(gh issue list --state open --limit 100 --json number,title,labels,blockedBy 2>/dev/null || true)
 
   if [[ -z "$raw_open_issues" || "$raw_open_issues" == "[]" ]]; then
     if ! gh auth status >/dev/null 2>&1; then
@@ -660,11 +687,27 @@ cmd_next() {
   # Sort open issues:
   # 1. Issues with number > last_closed_no, sorted ascending by number
   # 2. Remaining issues (number <= last_closed_no), sorted ascending by number
+  # 3. Unblocked issues first; blocked ones keep their relative order at the end.
+  # An issue is blocked when GitHub's native "blocked by" relationship points at
+  # an issue that is still open, or when it carries the `blocked` label.
+  # Body text is never parsed: prose is not authoritative.
   local sorted_issues
   sorted_issues=$(echo "$raw_open_issues" | jq --argjson last "$last_closed_no" '
-    ([ .[] | select(.number > $last) ] | sort_by(.number)) as $after |
-    ([ .[] | select(.number <= $last) ] | sort_by(.number)) as $before |
-    $after + $before
+    ([ .[].number ]) as $open
+    | ([ .[] | select(.number > $last) ] | sort_by(.number)) as $after
+    | ([ .[] | select(.number <= $last) ] | sort_by(.number)) as $before
+    | ($after + $before)
+    | map(
+        . as $issue
+        | ([ (($issue.blockedBy.nodes // [])[].number)
+             | select(. as $dep | ($open | index($dep)) != null) ]) as $blocked_by
+        | $issue + {
+            blocked_by: $blocked_by,
+            blocked: (((($issue.labels // []) | map(.name) | index("blocked")) != null)
+                      or (($blocked_by | length) > 0))
+          }
+      )
+    | ([ .[] | select(.blocked | not) ]) + ([ .[] | select(.blocked) ])
   ')
 
   local count
@@ -679,14 +722,25 @@ cmd_next() {
   printf "  ${BLUE}%-7s${NC} %s\n" "ISSUE" "TITLE"
   printf "  %-7s %s\n" "-------" "------------------------------------------------------------"
 
-  echo "$sorted_issues" | jq -r '.[] | "\(.number)\t\(.title)"' | while IFS=$'\t' read -r num title; do
-    printf "  #%-6s %s\n" "$num" "$title"
+  # Unit separator (0x1f): not IFS whitespace, so empty fields do not collapse.
+  echo "$sorted_issues" | jq -r '
+    .[] | "\(.number)\u001f\(.blocked)\u001f\((.blocked_by // []) | map("#\(.)") | join(", "))\u001f\(.title)"
+  ' | while IFS=$'\x1f' read -r num blocked blocked_by title; do
+    if [[ "$blocked" == "true" ]]; then
+      printf "  #%-6s %s  ${YELLOW}(blocked by %s)${NC}\n" "$num" "$title" "${blocked_by:-label}"
+    else
+      printf "  #%-6s %s\n" "$num" "$title"
+    fi
   done
   echo ""
 
   local next_issue_no next_issue_title
-  next_issue_no=$(echo "$sorted_issues" | jq -r '.[0].number')
-  next_issue_title=$(echo "$sorted_issues" | jq -r '.[0].title')
+  next_issue_no=$(echo "$sorted_issues" | jq -r '[ .[] | select(.blocked | not) ][0].number // empty')
+  next_issue_title=$(echo "$sorted_issues" | jq -r '[ .[] | select(.blocked | not) ][0].title // empty')
+
+  if [[ -z "$next_issue_no" ]]; then
+    error "Every remaining issue is blocked. Unblock one (close a dependency) before running 'next'."
+  fi
 
   log "Next issue in queue: #${next_issue_no} - ${next_issue_title}"
 

@@ -3,7 +3,7 @@ name: github-cli
 description: Work on GitHub repositories from the command line with git and the official gh CLI. Use for clone, branch, commit, push, issues, pull requests, reviews, checks, releases, Actions runs, forks, code search, and GitHub API calls. Triggers on GitHub, gh, git repo, open a PR, create issue, merge pull request, review PR, gh api, release, workflow run, fork, and similar repo-workflow requests.
 metadata:
   type: workflow
-  version: "1.2"
+  version: "1.3"
   stack: git+gh
 ---
 
@@ -12,6 +12,8 @@ metadata:
 Operate on GitHub through **`git` + `gh`**. Treat **`gh api`** as the escape hatch when no first-class `gh` command exists. Do not start with raw `curl` if `gh` is authenticated.
 
 Assume the operator already has sufficient access (token, SSH, or `gh auth`). If a command fails with 401/403/404, diagnose auth or permission — do not invent a workaround that bypasses protection.
+
+**In an agent shell, rule out the sandbox before auth.** A sandboxed `gh` reports network failures as `The token in keyring is invalid` / GraphQL `Forbidden`. See _Agents: run `gh` bare_ below — it is almost always the invocation, not the credential.
 
 Detailed command catalogs live in:
 
@@ -42,7 +44,49 @@ Reasons:
 
 1. MCP write tools often open an interactive approval form and stall until the user clicks Submit.
 2. `gh` runs non-interactively, returns the URL immediately, and matches this skill’s recipes.
-3. Shell `gh` must run **outside the sandbox** (`required_permissions: ["all"]`). Sandboxed shells cannot read the OS keyring, so `gh` reports an invalid token / GraphQL `Forbidden` even when the user is logged in.
+3. Shell `gh` must run **outside the sandbox**. Sandboxed, `gh` cannot reach `api.github.com`, and it then misreports the network failure as an auth failure — `The token in keyring is invalid` or GraphQL `Forbidden` — even though the user is logged in and the token is perfectly valid.
+
+### Agents: run `gh` bare — never pipe or redirect (hard rule)
+
+**The command allowlist matches on the command string.** `gh issue view 227 --json state` matches and runs unsandboxed. The same command with `2>&1 | head -3`, `| jq`, or `> out.txt` is a _different_ string, drops into the sandbox, and fails with the misleading auth error above.
+
+```bash
+# ✅ unsandboxed, works
+gh issue view 227 --json state --jq .state
+gh pr list --json number --jq '.[].number'
+gh issue edit 227 --body-file /tmp/body.md
+
+# ❌ pipelines / redirects fall into the sandbox
+gh auth status 2>&1 | head -3
+gh issue list > /tmp/issues.txt
+```
+
+Rules:
+
+- Filter with `--json` + `--jq` / `--template`, not with a shell pipe.
+- Write bodies to a file and pass `--body-file`; do not build them with shell redirection.
+- If a `gh` command must be piped, it is no longer covered by the allowlist. Either skip the pipe, or run it with an explicit `required_permissions: ["all"]`.
+
+### Diagnosing a `gh` failure — check the sandbox first
+
+Before touching auth, check whether the command ran sandboxed (the harness prints a `SANDBOXING:` footer).
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" https://api.github.com/rate_limit   # 000 = blocked by sandbox
+curl -s -o /dev/null -w "%{http_code}\n" https://github.com                  # 200 = egress partially works
+security find-generic-password -s gh:github.com >/dev/null; echo $?          # 0 = keyring is FINE
+```
+
+Measured behaviour (macOS, Cursor agent shell):
+
+| Symptom                                                  | Actual cause                                                       |
+| -------------------------------------------------------- | ------------------------------------------------------------------ |
+| `The token in keyring is invalid`                        | `api.github.com` unreachable — **not** a credential problem        |
+| GraphQL `Forbidden`                                      | same — the request never left the machine                          |
+| `curl` to `api.github.com` → `000`, `github.com` → `200` | sandbox egress allowlist excludes the API host                     |
+| Keychain read exits `0`                                  | the token is readable; **never** advise `gh auth refresh` for this |
+
+**Do not** run `gh auth refresh`, `gh auth logout`, or export `GH_TOKEN` to "fix" this. None of them help, and re-authenticating discards a working token. Fix the invocation instead.
 
 GitHub MCP **read** tools (list/view/search) are optional when they do not prompt. Prefer `gh` for reads too when a clone or auth context is already available.
 
@@ -56,9 +100,17 @@ Before the first mutating command in a session:
 
 ```bash
 bash scripts/preflight.sh
-# or, if not running from the skill dir
+# or, if not running from the skill dir — run `gh auth status` BARE (no pipe)
 git --version && gh --version && gh auth status
 ```
+
+In an agent shell, also confirm `gh` is actually leaving the sandbox:
+
+```bash
+gh auth status          # must print ✓ Logged in; ✗ means the command was sandboxed
+```
+
+If it prints `✗ ... The token in keyring is invalid`, the command ran sandboxed. Re-run it bare (no `|`, no `2>&1`, no `>`), or with `required_permissions: ["all"]`. Do **not** re-authenticate.
 
 Establish target repo:
 
@@ -152,16 +204,20 @@ Use `gh api` when you need a field those commands do not expose, GraphQL, or a p
 
 ### Auth errors
 
-| Symptom                                                    | Likely cause                                               |
-| ---------------------------------------------------------- | ---------------------------------------------------------- |
-| 401                                                        | Missing/expired token; run `gh auth status`                |
-| 403 on push                                                | No write permission, SSO not authorized, or branch ruleset |
-| 403 on workflow file                                       | Token lacks `workflow` scope                               |
-| 403 / 429 with `rate limit` / `secondary rate` in the body | Quota, not permission. See Rate limits below               |
-| 404 on a repo you know exists                              | Private repo + wrong account, or no access                 |
-| `resource not accessible by integration`                   | Fine-grained token missing that permission                 |
+| Symptom                                                    | Likely cause                                                         |
+| ---------------------------------------------------------- | -------------------------------------------------------------------- |
+| `The token in keyring is invalid` (agent shell)            | **Sandbox**, not auth. Run the command bare — see above.             |
+| GraphQL `Forbidden` under `SANDBOXING:` footer             | **Sandbox** egress block on `api.github.com`. Not a permission miss. |
+| 401                                                        | Missing/expired token; run `gh auth status`                          |
+| 403 on push                                                | No write permission, SSO not authorized, or branch ruleset           |
+| 403 on workflow file                                       | Token lacks `workflow` scope                                         |
+| 403 / 429 with `rate limit` / `secondary rate` in the body | Quota, not permission. See Rate limits below                         |
+| 404 on a repo you know exists                              | Private repo + wrong account, or no access                           |
+| `resource not accessible by integration`                   | Fine-grained token missing that permission                           |
 
 Re-auth or request permission. Do not try to smash through branch protection.
+
+**Order of checks for any `gh` failure:** (1) did it run sandboxed? (2) is the invocation piped/redirected? (3) only then auth.
 
 ### Rate limits
 

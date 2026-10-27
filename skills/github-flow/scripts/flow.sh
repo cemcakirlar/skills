@@ -123,6 +123,57 @@ detect_check_command() {
   fi
 }
 
+# -----------------------------------------------------------------------------
+# Issue resolution for the current branch
+# -----------------------------------------------------------------------------
+# Branch slugs are derived from the issue title and may contain any number
+# (e.g. "split-record-run-ts-918-loc-into-..."), so a naive first-match regex on
+# the slug reports the wrong issue. Resolve in order of trustworthiness:
+#   1. the open PR's closingIssuesReferences
+#   2. the open PR title's trailing "(#123)"
+#   3. `Refs/Resolves/Closes #123` in commit subjects on this branch vs the default branch
+#   4. a standalone "issue-<n>" segment in the branch name
+# Returns empty string when nothing resolves.
+resolve_branch_issue_no() {
+  local branch pr_json issues title_issue commit_issue slug_issue
+
+  branch=$(git branch --show-current 2>/dev/null || true)
+  [[ -z "$branch" || "$branch" == "$DEFAULT_BRANCH" ]] && return 0
+
+  # 1 + 2: the PR already knows which issue it closes.
+  pr_json=$(gh pr view --json closingIssuesReferences,title 2>/dev/null || true)
+  if [[ -n "$pr_json" ]]; then
+    issues=$(echo "$pr_json" | jq -r '(.closingIssuesReferences // [])[].number' 2>/dev/null | head -n 1 || true)
+    if [[ -n "$issues" ]]; then
+      echo "$issues"
+      return 0
+    fi
+    title_issue=$(echo "$pr_json" | jq -r '.title // ""' 2>/dev/null | grep -oE '\(#[0-9]+\)' | tr -dc '0-9' | head -n 1 || true)
+    if [[ -n "$title_issue" ]]; then
+      echo "$title_issue"
+      return 0
+    fi
+  fi
+
+  # 3: commits that already reference an issue number.
+  commit_issue=$(
+    git log --format=%s "origin/$DEFAULT_BRANCH..HEAD" 2>/dev/null \
+      | grep -oiE '(refs|resolves|closes|fixes) #[0-9]+' \
+      | tr -dc '0-9' | head -n 1 || true
+  )
+  if [[ -n "$commit_issue" ]]; then
+    echo "$commit_issue"
+    return 0
+  fi
+
+  # 4: only an explicit "issue-<n>" fallback slug is unambiguous.
+  slug_issue=$(echo "$branch" | grep -oE 'issue-[0-9]+' | tr -dc '0-9' | head -n 1 || true)
+  if [[ -n "$slug_issue" ]]; then
+    echo "$slug_issue"
+    return 0
+  fi
+}
+
 resolve_flow_cmd() {
   if [[ -f "$REPO_ROOT/package.json" ]] && grep -q '"flow":' "$REPO_ROOT/package.json"; then
     if [[ -f "$REPO_ROOT/pnpm-lock.yaml" ]]; then
@@ -378,16 +429,17 @@ cmd_check() {
   log "Working tree status:"
   git status -sb
   success "Quality gates passed successfully!"
-  local branch_issue=""
-  local current_branch
-  current_branch=$(git branch --show-current 2>/dev/null || true)
-  if [[ "$current_branch" =~ [/-]([0-9]+) ]]; then
-    branch_issue="${BASH_REMATCH[1]}"
-  fi
-  local target_issue="${branch_issue:-<issue_no>}"
+  local target_issue
+  target_issue=$(resolve_branch_issue_no)
   echo ""
-  echo "Next step: commit changes and create PR with:"
-  echo -e "  ${GREEN}$(resolve_flow_cmd) pr $target_issue \"[title]\"${NC}"
+  if [[ -n "$target_issue" ]]; then
+    echo "Next step: commit changes and create PR with:"
+    echo -e "  ${GREEN}$(resolve_flow_cmd) pr $target_issue \"[title]\"${NC}"
+  else
+    warn "Could not determine the issue number for branch '$(git branch --show-current 2>/dev/null || true)'."
+    echo "Next step: pass the issue number explicitly:"
+    echo -e "  ${GREEN}$(resolve_flow_cmd) pr <issue_no> \"[title]\"${NC}"
+  fi
 }
 
 cmd_link() {
